@@ -126,26 +126,19 @@ function hideBroken(e) {
 const mdCache = new Map()
 
 /**
- * 规范化模型输出中的不可见字符与装饰性符号
+ * 规范化模型输出中的不可见字符
  *
- * <p>三件事：</p>
- * <ol>
- *   <li>模型偶尔输出 {@code ##\u00A0标题}（不间断空格）或全角空格，而 marked 只认
- *       半角空格/制表符，识别不了就会把 {@code ##} 原样显示出来，这里统一成半角空格</li>
- *   <li>紧贴文字的 # 补一个空格，保证被识别为 ATX 标题</li>
- *   <li>去掉 emoji 与带圈数字（1️⃣ 这类 keycap 序列），退化为普通文本，
- *       避免回答里出现一堆装饰性符号</li>
- * </ol>
+ * <p>模型偶尔输出 {@code ##\u00A0标题}（不间断空格）或全角空格，而 marked 只认
+ * 半角空格/制表符作为 ATX 标题的分隔符，识别失败就会把 {@code ##} 原样显示出来。
+ * 这里统一成半角空格，并为紧贴文字的 # 补一个空格，让它被正确解析成标题——
+ * 标题会以字号加粗呈现，{@code #} 本身不会出现在对话里。</p>
+ *
+ * <p>emoji 保留原样展示（模型常用它做视觉分区）。</p>
  */
 function normalizeMarkdown(text) {
   return text
     .replace(/[\u00A0\u3000]/g, ' ')
     .replace(/^(#{1,6})[ \t]*(?=\S)/gm, '$1 ')
-    // keycap 组合（数字 + 变体选择符 + 组合包围键帽）：去掉后两个码点即退化为普通数字
-    .replace(/[\uFE0F\u20E3]/g, '')
-    // 用 Unicode 的 Extended_Pictographic 精确匹配 emoji：
-    // 比手写码点区间可靠（⏰ U+23F0、⚠️ U+26A0、📋 U+1F4CB 等分散在多个区段）
-    .replace(/\p{Extended_Pictographic}/gu, '')
 }
 
 function renderMarkdown(text) {
@@ -500,7 +493,7 @@ onBeforeUnmount(() => {
   border-radius: 14px;
   border: 1px solid var(--glass-border);
   font-size: 13.5px;
-  line-height: 1.75;
+  line-height: 1.6;
   min-width: 0;
 }
 
@@ -518,14 +511,14 @@ onBeforeUnmount(() => {
   white-space: normal;
 
   :deep(p) {
-    margin: 6px 0;
+    margin: 4px 0;
 
     &:first-child { margin-top: 0; }
     &:last-child { margin-bottom: 0; }
   }
 
   :deep(h1), :deep(h2), :deep(h3), :deep(h4), :deep(h5) {
-    margin: 12px 0 6px;
+    margin: 8px 0 3px;
     font-weight: 700;
     color: var(--ink-1);
     line-height: 1.45;
@@ -591,11 +584,11 @@ onBeforeUnmount(() => {
   :deep(tr:nth-child(even) td) { background: rgba(91, 140, 255, 0.05); }
 
   :deep(ul), :deep(ol) {
-    margin: 6px 0;
-    padding-left: 20px;
+    margin: 4px 0;
+    padding-left: 18px;
   }
 
-  :deep(li) { margin: 3px 0; }
+  :deep(li) { margin: 2px 0; }
 
   :deep(blockquote) {
     margin: 8px 0;
