@@ -48,10 +48,10 @@
         <el-table-column label="提交时间" prop="createTime" width="180" />
         <el-table-column label="操作" width="170" fixed="right" align="center">
           <template #default="{ row }">
-            <!-- 维修动作属处理人权限；取消报修后端要求 device:repair:submit，故仅按该权限显隐 -->
+            <!-- 维修动作属处理人权限；取消报修后端校验「仅报修人本人」，故同时判断归属 -->
             <template v-if="row.status === 'PENDING'">
               <el-button v-if="canHandle" link type="warning" @click="doStart(row)">开始维修</el-button>
-              <el-button v-if="canSubmit" link type="danger" @click="doCancel(row)">取消</el-button>
+              <el-button v-if="canSubmit && isMine(row)" link type="danger" @click="doCancel(row)">取消</el-button>
             </template>
             <template v-else-if="row.status === 'REPAIRING' && canHandle">
               <el-button link type="success" @click="doComplete(row)">完成维修</el-button>
@@ -111,6 +111,13 @@ const userStore = useUserStore()
 const canListAll = computed(() => userStore.hasPerm('device:repair:list'))
 const canHandle = computed(() => userStore.hasPerm('device:repair:handle'))
 const canSubmit = computed(() => userStore.hasPerm('device:repair:submit'))
+
+// 后端「取消报修」只允许报修人本人操作（越权会被 40300 拒绝）。
+// 有列表权限的角色能看到他人工单，因此按钮还需判断归属，避免「看得见点不了」。
+const myUserId = computed(() => String(userStore.userInfo?.userId ?? ''))
+function isMine(row) {
+  return String(row.reporterId ?? '') === myUserId.value
+}
 
 const loading = ref(false)
 const records = ref([])
