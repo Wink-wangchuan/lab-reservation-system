@@ -1,0 +1,60 @@
+# ============================================================
+# 生产环境配置（application-prod.yml）
+# 部署目标：tailnet 服务器 2407-70 (100.96.0.100)，用户级运行
+# 约束：服务只绑 100.96.0.100；MySQL/Redis 只走 127.0.0.1；敏感值全部走环境变量
+# ============================================================
+server:
+  # 监听地址与端口由 systemd 单元注入，默认仅暴露到 tailnet
+  address: ${SERVER_ADDRESS:100.96.0.100}
+  port: ${PORT:8091}
+
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:3306}/${DB_NAME:lab_reservation}?useUnicode=true&characterEncoding=UTF-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true
+    username: ${DB_USER:root}
+    password: ${DB_PASSWORD:}
+    hikari:
+      pool-name: LabHikariPool
+      minimum-idle: 3
+      maximum-pool-size: 10
+      idle-timeout: 60000
+      max-lifetime: 1800000
+      connection-timeout: 30000
+      connection-test-query: SELECT 1
+      # 并发正确性关键配置：MySQL 默认 REPEATABLE READ 会让事务在首次普通读时就固定快照，
+      # 导致「先加行锁、再校验冲突」的流程读到旧快照、看不到刚提交的数据（并发提交可绕过冲突校验）。
+      # 改为读已提交后，加锁后的校验总能读到最新已提交数据。
+      transaction-isolation: TRANSACTION_READ_COMMITTED
+
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: 0
+      timeout: 5000ms
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 0
+          max-wait: 3000ms
+
+# 生产环境关闭 SQL 明文打印，避免日志膨胀
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
+
+# JWT：密钥从环境变量注入，单元文件权限 600，不落仓库
+jwt:
+  secret: ${JWT_SECRET:}
+  expiration: 86400000
+  header: Authorization
+  prefix: "Bearer "
+
+# 生产不再输出 debug 级日志
+logging:
+  level:
+    com.lab.reservation: info
+    org.springframework.security: warn

@@ -1,0 +1,19 @@
+[Unit]
+Description=lab-reservation-system backend (Spring Boot, tailnet 100.96.0.100:8091)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/lab-reservation
+# 敏感配置（DB/Redis/JWT）从 .env 注入，文件权限 600，不落仓库
+EnvironmentFile=%h/lab-reservation/.env
+Environment=SPRING_PROFILES_ACTIVE=prod
+Environment=JAVA_HOME=%h/opt/jre25
+ExecStart=%h/opt/jre25/bin/java -Xms256m -Xmx768m -jar %h/lab-reservation/app.jar
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:%h/lab-reservation/logs/app.log
+StandardError=append:%h/lab-reservation/logs/app.log
+
+[Install]
+WantedBy=default.target

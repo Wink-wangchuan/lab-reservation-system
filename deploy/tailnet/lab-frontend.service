@@ -1,0 +1,16 @@
+[Unit]
+Description=lab-reservation-system frontend (静态站 + SPA 回退, tailnet 100.96.0.100:8092)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/lab-reservation
+EnvironmentFile=%h/lab-reservation/.env
+ExecStart=/usr/bin/python3 %h/lab-reservation/deploy/serve_dist.py --bind 100.96.0.100 --port 8092 --directory %h/lab-reservation/dist
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:%h/lab-reservation/logs/frontend.log
+StandardError=append:%h/lab-reservation/logs/frontend.log
+
+[Install]
+WantedBy=default.target

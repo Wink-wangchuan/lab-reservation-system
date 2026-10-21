@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+    预约单 Mapper XML
+    说明：时间冲突判定 SQL —— 两区间 [a,b) 与 [c,d) 相交条件：
+          a < d AND b > c，配合索引 idx_reserve_scope(lab_id, reserve_date,...)
+-->
+<mapper namespace="com.lab.reservation.mapper.LabReservationMapper">
+
+    <!-- 结果映射（下划线 -> 驼峰自动映射，此处省略即可） -->
+
+    <select id="selectConflictingReservations" resultType="com.lab.reservation.entity.LabReservation">
+        SELECT id,
+               reservation_no,
+               lab_id,
+               lab_name,
+               student_id,
+               student_name,
+               teacher_id,
+               teacher_name,
+               reserve_date,
+               start_time,
+               end_time,
+               purpose,
+               people_count,
+               use_device_ids,
+               status,
+               reject_reason,
+               cancel_reason,
+               complete_time,
+               deleted,
+               create_time,
+               update_time
+        FROM lab_reservation
+        WHERE deleted = 0
+          AND lab_id = #{labId}
+          AND reserve_date = #{date}
+          AND status NOT IN
+          <foreach collection="bannedStatus" item="st" open="(" separator="," close=")">
+              #{st}
+          </foreach>
+          <!-- 核心冲突条件：现有区间与新区间存在交集 -->
+          AND start_time &lt; #{newEnd}
+          AND end_time &gt; #{newStart}
+          <if test="excludeId != null">
+              AND id != #{excludeId}
+          </if>
+    </select>
+
+</mapper>

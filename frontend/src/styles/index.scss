@@ -1,0 +1,590 @@
+// ============================================================
+//  智慧实验室预约管理系统 - 全局主题样式
+//  风格: iOS 27 液态玻璃拟态 (Liquid Glass)
+//  特征: 半透明毛玻璃卡片、细腻高光、柔和辉光、模糊背景
+// ============================================================
+
+// Element Plus 主题变量覆盖
+$el-primary: #5b8cff;
+$el-primary-light: #7aa5ff;
+
+:root {
+  --glass-bg: rgba(255, 255, 255, 0.55);
+  --glass-border: rgba(255, 255, 255, 0.5);
+  --glass-highlight: rgba(255, 255, 255, 0.7);
+  --ink-1: #1c2540; // 主文字
+  --ink-2: #52608a; // 次级文字
+  --ink-3: #8a94b8; // 弱化文字
+  --accent: #5b8cff;
+  --accent-2: #7a5bff;
+  --accent-gradient: linear-gradient(135deg, #5b8cff 0%, #7a5bff 100%);
+  --shadow-soft: 0 8px 30px rgba(90, 118, 240, 0.12);
+  --shadow-glass: 0 16px 50px rgba(60, 80, 180, 0.16);
+  --radius-lg: 22px;
+  --radius-md: 16px;
+  --radius-sm: 12px;
+  // —— 语义化卡片表面色 ——
+  // 各页面/组件的自定义卡片一律引用这些变量，避免散落硬编码的 rgba(255,255,255,.3x)
+  // 在深色模式下泛白；主题切换只需改这里的取值。
+  --card-bg: rgba(255, 255, 255, 0.34);        // 卡片、列表行
+  --card-bg-hover: rgba(255, 255, 255, 0.52);  // 卡片/行悬停态
+  --card-bg-soft: rgba(255, 255, 255, 0.42);   // 卡片内嵌小块
+  --surface-btn: rgba(255, 255, 255, 0.32);    // 图标按钮底座
+  --hairline: rgba(255, 255, 255, 0.45);       // 卡片描边
+  --table-fixed-bg: #f6f8ff;                   // 表格固定列实色底（防止下层文字透出）
+  --table-fixed-hover: #e9f0ff;                // 固定列行悬停底
+  --bg-gradient: radial-gradient(1200px 800px at 10% -10%, #e6edff 0%, transparent 55%),
+    radial-gradient(1000px 700px at 110% 20%, #efe9ff 0%, transparent 50%),
+    radial-gradient(900px 600px at 50% 120%, #e8f6ff 0%, transparent 55%),
+    linear-gradient(160deg, #eef3ff 0%, #f6f4ff 50%, #eef6fe 100%);
+}
+
+// Element Plus 主色覆盖
+:root {
+  --el-color-primary: #5b8cff;
+  --el-color-primary-light-3: #7aa5ff;
+  --el-color-primary-light-5: #9bbbff;
+  --el-color-primary-light-7: #bcd3ff;
+  --el-color-primary-light-8: #cfe0ff;
+  --el-color-primary-light-9: #e8f0ff;
+  --el-color-primary-dark-2: #4770e0;
+  --el-border-radius-base: 10px;
+  --el-border-radius-small: 8px;
+  --el-font-family: 'PingFang SC', 'HarmonyOS Sans SC', 'Microsoft YaHei', system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  font-family: 'PingFang SC', 'HarmonyOS Sans SC', 'Microsoft YaHei', system-ui, sans-serif;
+  color: var(--ink-1);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  background: var(--bg-gradient);
+  background-attachment: fixed;
+  height: 100%;
+  overflow-x: hidden;
+}
+
+// —— 液态玻璃卡片（通用）——
+.glass-card {
+  position: relative;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(22px) saturate(1.4);
+  -webkit-backdrop-filter: blur(22px) saturate(1.4);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-soft);
+  padding: 22px 24px;
+
+  // 顶部细腻高光（液态玻璃的"光斑"）
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(
+      160deg,
+      var(--glass-highlight) 0%,
+      transparent 35%,
+      transparent 75%,
+      rgba(91, 140, 255, 0.06) 100%
+    );
+    // 高光层压到内容之下：绝对定位图层默认会覆盖静态内容，
+    // 浅色模式下 0.7 白色高光会把卡片左上角的 logo/标题洗成泛白。
+    // glass-card 因 backdrop-filter 已形成层叠上下文，负 z-index 只会落在自身背景之上、内容之下。
+    z-index: -1;
+    pointer-events: none;
+  }
+}
+
+// 可交互玻璃"按钮卡"
+.glass-hover {
+  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+  &:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-glass);
+    border-color: rgba(91, 140, 255, 0.35);
+  }
+}
+
+// 页面内容容器
+.page-container {
+  padding: 4px 2px 30px 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+// —— Element Plus 组件再融入玻璃风格 ——
+.el-card {
+  background: var(--glass-bg) !important;
+  border: 1px solid var(--glass-border) !important;
+  backdrop-filter: blur(20px) saturate(1.35) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(1.35) !important;
+  border-radius: var(--radius-lg) !important;
+  box-shadow: var(--shadow-soft) !important;
+  overflow: hidden;
+}
+
+.el-table {
+  --el-table-bg-color: transparent !important;
+  --el-table-tr-bg-color: transparent !important;
+  --el-table-header-bg-color: rgba(255, 255, 255, 0.4) !important;
+  --el-table-row-hover-bg-color: rgba(91, 140, 255, 0.08) !important;
+  border-radius: 12px;
+  background: transparent !important;
+}
+
+.el-table__inner-wrapper::before {
+  background-color: rgba(255, 255, 255, 0.6) !important;
+}
+
+.el-table th.el-table__cell {
+  background: rgba(255, 255, 255, 0.45);
+  color: var(--ink-2);
+  font-weight: 600;
+}
+
+// 表格保留 border 属性是为了启用「拖动表头调整列宽」，
+// 但不需要它带来的网格竖线与外框，这里全部隐藏，维持无边框的玻璃观感。
+.el-table--border .el-table__cell {
+  border-right-color: transparent !important;
+}
+
+.el-table--border::after,
+.el-table--border::before {
+  display: none;
+}
+
+// 固定列（右/左）必须有实色底：表格整体背景被设为透明，
+// 否则横向滚动时固定列下方的单元格文字会透出来，看起来像「列重叠」。
+.el-table .el-table__cell.el-table-fixed-column--left,
+.el-table .el-table__cell.el-table-fixed-column--right {
+  background: var(--table-fixed-bg) !important;
+}
+
+.el-table__body tr:hover > td.el-table-fixed-column--left,
+.el-table__body tr:hover > td.el-table-fixed-column--right {
+  background: var(--table-fixed-hover) !important;
+}
+
+.el-pagination {
+  --el-pagination-bg-color: transparent;
+}
+
+// 标签胶囊
+.el-tag {
+  border-radius: 999px;
+}
+
+// 按钮略微圆润
+.el-button {
+  border-radius: 10px;
+}
+
+// 弹窗遮罩：Element Plus 默认 50% 纯黑，在浅色玻璃布局上会把卡片间隙压成
+// 一圈「黑色边框」，这里改用更浅的深蓝叠加，柔化卡片边缘的对比
+.el-overlay-dialog {
+  background-color: rgba(16, 24, 42, 0.32) !important;
+}
+
+html.dark .el-overlay-dialog {
+  background-color: rgba(0, 0, 0, 0.55) !important;
+}
+
+// 弹窗也玻璃化
+.el-dialog {
+  background: rgba(255, 255, 255, 0.85) !important;
+  backdrop-filter: blur(26px) saturate(1.4) !important;
+  -webkit-backdrop-filter: blur(26px) saturate(1.4) !important;
+  border: 1px solid var(--glass-border) !important;
+  border-radius: 20px !important;
+  box-shadow: var(--shadow-glass) !important;
+}
+
+.el-message-box {
+  background: rgba(255, 255, 255, 0.88) !important;
+  backdrop-filter: blur(26px) saturate(1.4) !important;
+  border-radius: 18px !important;
+  border: 1px solid var(--glass-border) !important;
+}
+
+.el-drawer {
+  background: rgba(255, 255, 255, 0.9) !important;
+  backdrop-filter: blur(26px) saturate(1.4) !important;
+}
+
+.el-form-item__label {
+  color: var(--ink-2) !important;
+  font-weight: 500;
+}
+
+// 滚动条美化
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(140, 150, 200, 0.28);
+  border-radius: 8px;
+  &:hover {
+    background: rgba(140, 150, 200, 0.45);
+  }
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+// 分页居中
+.table-pagination {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.page-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--ink-1);
+  margin: 0;
+  letter-spacing: 0.5px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+// ============================================================
+//  深色模式（html.dark）
+//  仅覆盖 CSS 变量与少数需要显式背景的 Element Plus 组件，
+//  组件内部无需感知主题。
+// ============================================================
+html.dark {
+  --glass-bg: rgba(26, 31, 48, 0.66);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --glass-highlight: rgba(255, 255, 255, 0.08);
+  --ink-1: #e9efff;
+  --ink-2: #b3bfdd;
+  --ink-3: #7d89ac;
+  --shadow-soft: 0 8px 30px rgba(0, 0, 0, 0.38);
+  --shadow-glass: 0 16px 50px rgba(0, 0, 0, 0.5);
+  // —— 语义化卡片表面色（深色等效值）——
+  // 低透明度白色叠加在深色背景上，呈深色玻璃质感而非泛白
+  --card-bg: rgba(255, 255, 255, 0.06);
+  --card-bg-hover: rgba(255, 255, 255, 0.12);
+  --card-bg-soft: rgba(255, 255, 255, 0.08);
+  --surface-btn: rgba(255, 255, 255, 0.07);
+  --hairline: rgba(255, 255, 255, 0.14);
+  --table-fixed-bg: #1b2134;                   // 表格固定列实色底（深色等效）
+  --table-fixed-hover: #232b45;
+  --bg-gradient: radial-gradient(1200px 800px at 8% -10%, #1b2540 0%, transparent 55%),
+    radial-gradient(1000px 700px at 108% 18%, #241f42 0%, transparent 50%),
+    radial-gradient(900px 600px at 50% 118%, #16283a 0%, transparent 55%),
+    linear-gradient(160deg, #0d1120 0%, #12172a 50%, #0d1424 100%);
+
+  // Element Plus 基础变量
+  --el-bg-color: #1a2036;
+  --el-bg-color-overlay: #1f2740;
+  --el-bg-color-page: #0d1120;
+  --el-text-color-primary: #e9efff;
+  --el-text-color-regular: #c2cdE8;
+  --el-text-color-secondary: #8e9abb;
+  --el-text-color-placeholder: #6c7796;
+  --el-text-color-disabled: #5a647f;
+  --el-border-color: rgba(255, 255, 255, 0.16);
+  --el-border-color-light: rgba(255, 255, 255, 0.12);
+  --el-border-color-lighter: rgba(255, 255, 255, 0.08);
+  --el-border-color-extra-light: rgba(255, 255, 255, 0.06);
+  --el-fill-color-blank: transparent;
+  --el-fill-color-light: rgba(255, 255, 255, 0.06);
+  --el-fill-color-lighter: rgba(255, 255, 255, 0.04);
+  --el-mask-color: rgba(5, 8, 16, 0.62);
+  --el-disabled-bg-color: rgba(255, 255, 255, 0.04);
+  // Element Plus 的 effect="light" 标签与骨架屏默认取浅色调，
+  // 深色下需改为低透明度深色底，否则同样会"泛白"
+  --el-color-primary-light-9: rgba(91, 140, 255, 0.16);
+  --el-color-primary-light-8: rgba(91, 140, 255, 0.22);
+  --el-color-primary-light-7: rgba(91, 140, 255, 0.3);
+  --el-color-success-light-9: rgba(53, 224, 161, 0.14);
+  --el-color-success-light-8: rgba(53, 224, 161, 0.2);
+  --el-color-warning-light-9: rgba(255, 138, 92, 0.14);
+  --el-color-warning-light-8: rgba(255, 138, 92, 0.2);
+  --el-color-danger-light-9: rgba(255, 77, 109, 0.14);
+  --el-color-danger-light-8: rgba(255, 77, 109, 0.2);
+  --el-color-error-light-9: rgba(255, 77, 109, 0.14);
+  --el-color-info-light-9: rgba(255, 255, 255, 0.08);
+  --el-color-info-light-8: rgba(255, 255, 255, 0.14);
+  --el-skeleton-color: rgba(255, 255, 255, 0.08);
+  --el-skeleton-to-color: rgba(255, 255, 255, 0.16);
+
+  .el-card,
+  .el-dialog,
+  .el-message-box,
+  .el-drawer,
+  .el-popper,
+  .el-dropdown-menu {
+    background: rgba(26, 31, 48, 0.94) !important;
+    border-color: var(--glass-border) !important;
+  }
+
+  .el-table {
+    --el-table-header-bg-color: rgba(255, 255, 255, 0.05) !important;
+    --el-table-row-hover-bg-color: rgba(91, 140, 255, 0.14) !important;
+    color: var(--ink-1);
+  }
+
+  .el-table th.el-table__cell {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--ink-2);
+  }
+
+  .el-table__inner-wrapper::before {
+    background-color: rgba(255, 255, 255, 0.06) !important;
+  }
+
+  .el-table tr,
+  .el-table td.el-table__cell {
+    background-color: transparent;
+    border-color: rgba(255, 255, 255, 0.07);
+  }
+
+  .el-table--enable-row-hover .el-table__body tr:hover > td.el-table__cell {
+    background-color: rgba(91, 140, 255, 0.12);
+  }
+
+  .el-descriptions {
+    --el-descriptions-item-bordered-label-background: rgba(255, 255, 255, 0.05);
+  }
+
+  .el-input__wrapper,
+  .el-textarea__inner,
+  .el-select__wrapper,
+  .el-input-number {
+    background-color: rgba(255, 255, 255, 0.05) !important;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12) inset !important;
+  }
+
+  // 全局提示 / 通知默认浅底，深色下改为深色玻璃
+  .el-message,
+  .el-notification {
+    background: rgba(26, 31, 48, 0.96) !important;
+    border-color: var(--glass-border) !important;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45) !important;
+  }
+
+  .el-message__content,
+  .el-notification__content,
+  .el-notification__title {
+    color: var(--ink-1) !important;
+  }
+
+  // 空状态插画本身是浅色系，深色下降透明度避免刺眼
+  .el-empty__image {
+    opacity: 0.45;
+  }
+
+  // 签到核销结果横幅：浅色红/绿在深色背景下会发白，改为深色可读配色
+  .verify-result {
+    background: rgba(255, 77, 109, 0.16);
+    border-color: rgba(255, 77, 109, 0.4);
+    color: #ff9db0;
+
+    &.ok {
+      background: rgba(53, 224, 161, 0.14);
+      border-color: rgba(53, 224, 161, 0.4);
+      color: #6fe3b4;
+    }
+  }
+
+  .el-menu {
+    background: transparent !important;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: rgba(150, 165, 210, 0.26);
+  }
+}
+
+// 主题切换时的过渡（避免生硬跳变）
+html {
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+// ============================================================
+//  响应式通用工具
+// ============================================================
+// 表格横向滚动容器：窄屏下保持列宽可读，避免表格被压缩变形
+.table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+
+  // 隐藏滚动条但保留滚动能力（配合全站偏好）
+  &::-webkit-scrollbar {
+    height: 6px;
+  }
+}
+
+// 通用骨架屏
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(140, 150, 200, 0.12) 25%,
+    rgba(140, 150, 200, 0.24) 37%,
+    rgba(140, 150, 200, 0.12) 63%
+  );
+  background-size: 400% 100%;
+  animation: skeleton-loading 1.4s ease infinite;
+  border-radius: 10px;
+}
+
+@keyframes skeleton-loading {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}
+
+// 卡片网格：默认 4 列，窄屏自动回落
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+@media (max-width: 1180px) {
+  .card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .card-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+}
+
+// 窄屏：弹窗与消息框占满可用宽度，避免内容被挤压
+@media (max-width: 640px) {
+  .el-dialog {
+    width: 92% !important;
+    max-width: 92%;
+    margin-top: 8vh !important;
+  }
+
+  .el-message-box {
+    width: 90% !important;
+    max-width: 90%;
+  }
+
+  .el-message {
+    min-width: auto;
+    max-width: 92%;
+  }
+
+  .page-container {
+    gap: 12px;
+    padding: 2px 0 24px;
+  }
+
+  .glass-card {
+    padding: 16px 14px;
+    border-radius: var(--radius-md);
+  }
+
+  .page-title {
+    font-size: 17px;
+  }
+
+  // 查询工具条在窄屏改为「每行两个」：控件不再各占一行，也不再被压缩到换行
+  .toolbar {
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .page-title {
+    flex-wrap: wrap;
+  }
+
+  .toolbar-right {
+    width: 100%;
+    gap: 10px;
+
+    > .el-input,
+    > .el-select,
+    > .el-date-editor {
+      flex: 1 1 calc(50% - 5px);
+      width: auto !important;
+      min-width: 0;
+    }
+
+    > .el-button {
+      flex: 1 1 calc(50% - 5px);
+      // Element Plus 给相邻按钮加了 12px 左边距，会让两个按钮刚好挤到换行
+      margin-left: 0 !important;
+    }
+
+    > .el-radio-group {
+      flex: 1 1 100%;
+      width: 100%;
+    }
+  }
+
+  // 分页居中并精简布局
+  .table-pagination {
+    justify-content: center;
+
+    .el-pagination__sizes,
+    .el-pagination__jump {
+      display: none;
+    }
+  }
+}
+
+// 表单单列化：弹窗内表单在窄屏标签上置，避免输入框过窄
+@media (max-width: 600px) {
+  .form-responsive .el-form-item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  // 标签在输入框上方左对齐：Element Plus 横向表单默认右对齐（justify-content: flex-end），
+  // 转成竖排后会贴着右侧显示，看上去像是错位，这里一并覆盖
+  .form-responsive .el-form-item__label {
+    width: auto !important;
+    height: auto !important;
+    line-height: 1.5 !important;
+    justify-content: flex-start !important;
+    text-align: left !important;
+    padding: 0 0 6px !important;
+  }
+
+  .form-responsive .el-form-item__content {
+    margin-left: 0 !important;
+  }
+}

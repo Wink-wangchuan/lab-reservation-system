@@ -1,0 +1,51 @@
+# ============================================================
+# 开发环境配置（application-dev.yml）
+# 数据源：MySQL 8.x
+# Redis：本机默认
+#
+# 凭据一律走环境变量，不要在本文件里写真实密码/密钥后再提交：
+#   IDEA：Run → Edit Configurations → Environment variables 里加 DB_PASSWORD
+#   命令行：$env:DB_PASSWORD="你的密码"（PowerShell）
+# ============================================================
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:lab_reservation}?useUnicode=true&characterEncoding=UTF-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true
+    username: ${DB_USER:root}
+    password: ${DB_PASSWORD:}
+    hikari:
+      pool-name: LabHikariPool
+      minimum-idle: 5
+      maximum-pool-size: 20
+      idle-timeout: 60000
+      max-lifetime: 1800000
+      connection-timeout: 30000
+      connection-test-query: SELECT 1
+      # 与生产一致：读已提交隔离级别，保证「先加行锁、再校验」的流程能读到最新已提交数据
+      transaction-isolation: TRANSACTION_READ_COMMITTED
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password: ""          # 本机 Redis 未设置密码留空
+      database: 0
+      timeout: 5000ms
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 0
+          max-wait: 3000ms
+
+# JWT 配置（自定义属性）
+jwt:
+  # HS256 对称密钥：本地开发用下面这个占位值即可；
+  # 生产环境必须通过 JWT_SECRET 环境变量注入足够长的随机串，切勿沿用此默认值
+  secret: ${JWT_SECRET:labwise-dev-only-placeholder-secret-change-in-production-0123456789}
+  # 令牌有效期（毫秒）默认 24 小时
+  expiration: 86400000
+  # 请求头
+  header: Authorization
+  # 令牌前缀
+  prefix: "Bearer "

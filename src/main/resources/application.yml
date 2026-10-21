@@ -1,0 +1,100 @@
+# ============================================================
+# 智慧实验室预约管理系统 - 主配置文件
+# 默认激活 dev 环境；通过启动参数 -Dspring.profiles.active=prod 切换
+# ============================================================
+spring:
+  application:
+    name: lab-reservation-system
+  profiles:
+    active: dev
+
+  # 时间序列化统一为字符串，避免 LocalDateTime 默认数组/时间戳导致的显示异常
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: GMT+8
+    serialization:
+      write-dates-as-timestamps: false
+
+  # 文件上传大小限制
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 20MB
+
+  mvc:
+    # 路径匹配策略保持默认 ant_path_matcher（与 Knife4j 兼容）
+    throw-exception-if-no-handler-found: true
+    async:
+      # AI 助手是流式长连接：Tomcat 异步请求超时默认 30s，会把长回答硬掐断，此处显式放宽
+      request-timeout: 400s
+
+  web:
+    resources:
+      add-mappings: true
+
+server:
+  port: 8080
+  servlet:
+    context-path: /
+
+# ============================================================
+# MyBatis-Plus 配置
+# ============================================================
+mybatis-plus:
+  # 实体别名包（Mapper XML 中可直接写实体类名）
+  type-aliases-package: com.lab.reservation.entity
+  mapper-locations: classpath*:mapper/**/*.xml
+  configuration:
+    # 关闭二级缓存以外的下划线转驼峰（默认已开启），显示打印 SQL
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      # 主键策略：ASSIGN_ID（雪花算法，适配高并发）
+      id-type: assign_id
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+# ============================================================
+# Knife4j / OpenAPI 文档
+# ============================================================
+springdoc:
+  api-docs:
+    enabled: true
+    path: /v3/api-docs
+  group-configs:
+    - group: default
+      packages-to-scan: com.lab.reservation.controller
+
+knife4j:
+  enable: true
+  setting:
+    language: zh_cn
+    enable-footer: false
+  doc:
+    title: 智慧实验室预约管理系统 API
+    description: 智慧实验室预约管理系统接口文档（RESTful）
+    version: 1.0.0
+    contact:
+      name: LabWise
+
+# ============================================================
+# AI 助手（OpenAI 兼容协议）
+# 令牌只从环境变量注入（服务器 systemd 单元的 EnvironmentFile），不落仓库、不下发前端
+# ============================================================
+ai:
+  base-url: ${AI_BASE_URL:https://zhenze-guangzhou8.cmecloud.cn/api/coding/v1}
+  token: ${AI_TOKEN:}
+  model: ${AI_MODEL:MiniMax-M2.5}
+  timeout-seconds: ${AI_TIMEOUT:60}
+  max-history: 20
+  rate-limit-per-minute: 20
+
+# ============================================================
+# 日志级别
+# ============================================================
+logging:
+  level:
+    com.lab.reservation: debug
+    org.springframework.security: warn
