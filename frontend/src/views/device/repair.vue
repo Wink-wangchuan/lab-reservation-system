@@ -95,7 +95,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import {
   repairPage, repairMine, repairSubmit, repairStart, repairComplete,
   repairCancel, repairDeviceOptions
@@ -128,27 +128,43 @@ const statusMap = { PENDING: '待处理', REPAIRING: '维修中', COMPLETED: '�
 const statusTypeMap = { PENDING: 'warning', REPAIRING: 'primary', COMPLETED: 'success', CANCELLED: 'info' }
 function statusType(s) { return statusTypeMap[s] || 'info' }
 
-// 闭环演示：完成维修后停留 10 秒，再回退到「提交报修」，便于反复演示整条链路
+// 闭环步骤条反映"当前业务状态"，不再无条件跟着历史工单走：
+//  1) 存在待处理 / 维修中的工单 → 跟随最新活跃工单的进度
+//  2) 没有活跃工单 → 只有 5 分钟内刚完成的单子才展示"全部完成"，
+//     更早的历史完成单直接停在「提交报修」，避免一进页面就三步全绿
 const FLOW_RESET_DELAY = 10000
-// el-steps 的 active 表示"已完成步骤数"：COMPLETED 要取 3 才能让第三步也变成绿色已完成态，
-// 若取 2 则第三步仍在"进行中"，显示为蓝色且不会出现绿色对勾
+const FLOW_RECENT_MS = 5 * 60 * 1000
+// el-steps 的 active 表示"已完成步骤数"：COMPLETED 要取 3 才能让第三步也变成绿色已完成态
 const FLOW_STEP = { PENDING: 0, REPAIRING: 1, COMPLETED: 3, CANCELLED: 0 }
+
+const flowStage = ref(0)
 const flowReset = ref(false)
 let flowResetTimer = null
 
-// 步骤跟随最新一条工单（列表按创建时间倒序），保证新提报修时从第一步重新开始
-const flowActive = computed(() => {
-  if (flowReset.value) return 0
-  return FLOW_STEP[records.value[0]?.status] ?? 0
-})
+const flowActive = computed(() => (flowReset.value ? 0 : flowStage.value))
 
-watch(() => records.value[0]?.status, (status) => {
+/** 工单是否在近期刚完成（用完成时间判定，缺失时退回创建时间） */
+function isFreshCompleted(row) {
+  const at = row.finishTime || row.createTime
+  if (!at) return false
+  return Date.now() - new Date(at).getTime() < FLOW_RECENT_MS
+}
+
+/** 每次列表刷新后重新计算步骤：有活跃单跟活跃单，否则看是否刚完成，最后回到第一步 */
+function syncFlowStage() {
+  const list = records.value
+  const active = list.find((r) => r.status === 'PENDING' || r.status === 'REPAIRING')
+  const done = list.find((r) => r.status === 'COMPLETED')
+  const stage = active ? FLOW_STEP[active.status] : (done && isFreshCompleted(done) ? 3 : 0)
+  flowStage.value = stage
+
   clearTimeout(flowResetTimer)
   flowReset.value = false
-  if (status === 'COMPLETED') {
+  // 出现完成态后停留 10 秒再回到第一步；历史完成单不满足"近期完成"条件，会直接停在第一步
+  if (stage === 3) {
     flowResetTimer = setTimeout(() => { flowReset.value = true }, FLOW_RESET_DELAY)
   }
-}, { immediate: true })
+}
 
 onBeforeUnmount(() => clearTimeout(flowResetTimer))
 
@@ -171,6 +187,8 @@ async function load() {
       : await repairMine({ ...query.value })
     records.value = data.records
     total.value = data.total
+    // 列表刷新后同步闭环步骤条（活跃工单 > 近期完成 > 回到第一步）
+    syncFlowStage()
   } finally {
     loading.value = false
   }
