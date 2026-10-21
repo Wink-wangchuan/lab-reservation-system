@@ -5,6 +5,7 @@ import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.lab.reservation.common.KnowledgeRanker;
 import com.lab.reservation.common.ResultCode;
 import com.lab.reservation.config.AiProperties;
 import com.lab.reservation.constant.RedisKeyConstants;
@@ -57,7 +58,6 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -372,36 +372,10 @@ public class AiAssistantServiceImpl implements AiAssistantService {
         if (StrUtil.isBlank(question)) {
             return "";
         }
-        List<AiKnowledge> all = loadKnowledge();
-        if (all.isEmpty()) {
-            return "";
-        }
-        List<AiKnowledge> matched = all.stream()
-                .filter(k -> countKeywordHits(question, k) > 0)
-                .sorted(Comparator
-                        .comparingInt((AiKnowledge k) -> countKeywordHits(question, k)).reversed()
-                        .thenComparing(k -> k.getPriority() == null ? 0 : k.getPriority(),
-                                Comparator.reverseOrder())
-                        .thenComparing(AiKnowledge::getId))
-                .limit(KB_LIMIT)
-                .toList();
+        List<AiKnowledge> matched = KnowledgeRanker.rank(question, loadKnowledge(), KB_LIMIT);
         return matched.stream()
                 .map(k -> "【" + k.getTitle() + "】\n" + StrUtil.blankToDefault(k.getContent(), ""))
                 .collect(Collectors.joining("\n\n"));
-    }
-
-    /** 统计提问命中了该条知识的多少个关键词 */
-    private int countKeywordHits(String question, AiKnowledge k) {
-        if (k == null || StrUtil.isBlank(k.getKeywords())) {
-            return 0;
-        }
-        int hits = 0;
-        for (String kw : k.getKeywords().split(",")) {
-            if (StrUtil.isNotBlank(kw) && question.contains(kw.trim())) {
-                hits++;
-            }
-        }
-        return hits;
     }
 
     /** 读取启用的知识库条目（Redis 整体缓存，未命中回源数据库） */
