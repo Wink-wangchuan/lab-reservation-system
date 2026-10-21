@@ -8,16 +8,13 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lab.reservation.constant.RedisKeyConstants;
 import com.lab.reservation.entity.Device;
-import com.lab.reservation.entity.DeviceRepair;
 import com.lab.reservation.entity.LabInfo;
 import com.lab.reservation.entity.LabReservation;
-import com.lab.reservation.enums.RepairStatus;
 import com.lab.reservation.enums.ReservationStatus;
 import com.lab.reservation.mapper.DeviceMapper;
-import com.lab.reservation.mapper.DeviceRepairMapper;
 import com.lab.reservation.mapper.LabInfoMapper;
 import com.lab.reservation.mapper.LabReservationMapper;
-import com.lab.reservation.mapper.SysUserMapper;
+import com.lab.reservation.mapper.StatsMapper;
 import com.lab.reservation.service.StatisticsService;
 import com.lab.reservation.vo.BoardSummaryVO;
 import com.lab.reservation.vo.HotLabVO;
@@ -80,9 +77,8 @@ public class StatisticsServiceImpl implements StatisticsService {
 
     private final LabInfoMapper labInfoMapper;
     private final DeviceMapper deviceMapper;
-    private final SysUserMapper userMapper;
     private final LabReservationMapper reservationMapper;
-    private final DeviceRepairMapper repairMapper;
+    private final StatsMapper statsMapper;
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
 
@@ -377,25 +373,9 @@ public class StatisticsServiceImpl implements StatisticsService {
     // ==================== 各统计项回源实现 ====================
 
     private StatsOverviewVO loadOverview() {
-        StatsOverviewVO vo = new StatsOverviewVO();
-        vo.setLabTotal(labInfoMapper.selectCount(null));
-        // 台账按「设备配置」登记并带数量字段，因此设备总数按数量汇总（实际台/套数）
-        vo.setDeviceTotal(deviceMapper.sumQuantity());
-        vo.setUserTotal(userMapper.selectCount(null));
-        vo.setReservationTotal(reservationMapper.selectCount(null));
-        vo.setTodayReservation(reservationMapper.selectCount(
-                new LambdaQueryWrapper<LabReservation>()
-                        .eq(LabReservation::getReserveDate, LocalDate.now())
-                        .notIn(LabReservation::getStatus, INVALID_STATUS)));
-        vo.setPendingApproval(reservationMapper.selectCount(
-                new LambdaQueryWrapper<LabReservation>()
-                        .eq(LabReservation::getStatus, ReservationStatus.PENDING.name())));
-        vo.setPendingRepair(repairMapper.selectCount(
-                new LambdaQueryWrapper<DeviceRepair>()
-                        .eq(DeviceRepair::getStatus, RepairStatus.PENDING.name())));
-        vo.setFaultDevice(deviceMapper.selectCount(
-                new LambdaQueryWrapper<Device>().eq(Device::getFaultStatus, 1)));
-        return vo;
+        // 8 项指标合并为一次 SQL：原实现分别 count 8 次，缓存失效时要经历 8 个数据库往返
+        StatsOverviewVO vo = statsMapper.selectOverview();
+        return vo == null ? new StatsOverviewVO() : vo;
     }
 
     private List<NameValueVO> loadStatusDistribution() {
