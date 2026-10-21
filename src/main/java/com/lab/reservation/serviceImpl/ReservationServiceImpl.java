@@ -391,7 +391,7 @@ public class ReservationServiceImpl implements ReservationService {
         headerStyle.setFillForegroundColor(IndexedColors.ROYAL_BLUE.getIndex());
         headerStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
 
-        String[] headers = {"预约单号", "实验室", "学生", "教师", "预约日期",
+        String[] headers = {"预约单号", "实验室", "申请人", "审批人", "预约日期",
                 "开始时间", "结束时间", "人数", "用途", "状态", "创建时间"};
         Row headerRow = sheet.createRow(0);
         for (int i = 0; i < headers.length; i++) {

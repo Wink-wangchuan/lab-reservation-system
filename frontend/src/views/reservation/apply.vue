@@ -113,7 +113,7 @@
           <el-tag :type="statusType(current.status)">{{ current.statusDesc }}</el-tag>
         </el-descriptions-item>
         <el-descriptions-item label="用途" :span="2">{{ current.purpose }}</el-descriptions-item>
-        <el-descriptions-item label="教师">{{ current.teacherName || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="审批人">{{ current.teacherName || '-' }}</el-descriptions-item>
         <el-descriptions-item label="创建时间">{{ current.createTime }}</el-descriptions-item>
         <el-descriptions-item v-if="current.rejectReason" label="驳回原因" :span="2">{{ current.rejectReason }}</el-descriptions-item>
         <el-descriptions-item v-if="current.cancelReason" label="取消原因" :span="2">{{ current.cancelReason }}</el-descriptions-item>
@@ -220,7 +220,7 @@ function doSubmit() {
         peopleCount: applyForm.value.peopleCount,
         purpose: applyForm.value.purpose
       })
-      ElMessage.success('预约已提交，等待教师审批')
+      ElMessage.success('预约已提交，等待审批')
       applyVisible.value = false
       resetForm()
       load()
