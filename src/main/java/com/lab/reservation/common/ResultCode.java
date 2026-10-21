@@ -28,6 +28,7 @@ public enum ResultCode {
     CAPTCHA_INVALID(40104, "验证码错误"),
     CAPTCHA_EXPIRED(40105, "验证码已失效，请重新获取"),
     CAPTCHA_TOO_FREQUENT(40106, "请求过于频繁，请稍后再试"),
+    LOGIN_LOCKED(40107, "登录失败次数过多，请稍后再试"),
     FORBIDDEN(40300, "无权限访问该资源"),
 
     /* ==================== 业务通用 ==================== */

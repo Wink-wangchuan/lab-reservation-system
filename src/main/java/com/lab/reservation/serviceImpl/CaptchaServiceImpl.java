@@ -8,6 +8,8 @@ import com.lab.reservation.exception.BusinessException;
 import com.lab.reservation.service.CaptchaService;
 import com.lab.reservation.vo.CaptchaVO;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -31,11 +33,22 @@ import java.util.concurrent.ThreadLocalRandom;
  * @author LabWise
  * @since 1.2.0
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class CaptchaServiceImpl implements CaptchaService {
 
     private final StringRedisTemplate stringRedisTemplate;
+
+    /**
+     * 是否在响应中回传验证码本身
+     *
+     * <p><b>默认关闭</b>：验证码是登录凭证，一旦随响应返回，任何人只要知道用户名
+     * 就能匿名取码并直接登录该账号（等同于认证绕过）。仅在未接入短信通道的
+     * 演示环境通过 {@code CAPTCHA_EXPOSE_CODE=true} 临时开启。</p>
+     */
+    @Value("${auth.captcha.expose-code:false}")
+    private boolean exposeCode;
 
     /** 验证码有效期 */
     private static final Duration CAPTCHA_TTL = Duration.ofMinutes(5);
@@ -59,7 +72,13 @@ public class CaptchaServiceImpl implements CaptchaService {
                 .set(RedisKeyConstants.captchaKey(scene.getPrefix(), identity), code, CAPTCHA_TTL);
 
         CaptchaVO vo = new CaptchaVO();
-        vo.setCode(code);
+        // 仅演示环境回传验证码；关闭时前端只提示「已发送」
+        if (exposeCode) {
+            vo.setCode(code);
+        } else {
+            log.info("[验证码] 场景={} 标识={} 已生成，未回传（生产应由短信通道下发）",
+                    scene.getPrefix(), identity);
+        }
         vo.setExpireSeconds((int) CAPTCHA_TTL.toSeconds());
         return vo;
     }

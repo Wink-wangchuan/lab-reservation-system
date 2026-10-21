@@ -140,8 +140,9 @@ async function onSendCode() {
     start()
     ElNotification({
       title: '验证码已生成',
-      message: `本次验证码：${data.code}，${Math.round(data.expireSeconds / 60)} 分钟内有效。`
-        + '演示环境未接入短信通道，验证码由服务端直接返回。',
+      message: data.code
+        ? `本次验证码：${data.code}，${Math.round(data.expireSeconds / 60)} 分钟内有效。演示环境未接入短信通道，验证码由服务端直接返回。`
+        : `验证码已发送，${Math.round(data.expireSeconds / 60)} 分钟内有效，请查收短信。`,
       type: 'success',
       duration: 15000
     })

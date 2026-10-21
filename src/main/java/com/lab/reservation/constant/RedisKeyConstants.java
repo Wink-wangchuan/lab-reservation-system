@@ -120,6 +120,14 @@ public final class RedisKeyConstants {
     /** AI 知识库缓存（启用条目 JSON 列表，10 分钟过期）：ai:kb:list */
     public static final String AI_KB = "ai:kb:list";
 
+    /** 登录失败计数（防暴力破解）：login:fail:{username} */
+    public static final String LOGIN_FAIL = "login:fail:{}";
+
+    /** 组装登录失败计数键 */
+    public static String loginFailKey(String username) {
+        return StrUtil.format(LOGIN_FAIL, username);
+    }
+
     /** 组装 AI 会话历史键 */
     public static String aiChatKey(Long userId) {
         return StrUtil.format(AI_CHAT, userId);

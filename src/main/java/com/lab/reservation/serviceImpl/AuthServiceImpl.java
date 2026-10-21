@@ -30,6 +30,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -74,22 +75,60 @@ public class AuthServiceImpl implements AuthService {
     /** 手机号格式（与 RegisterDTO 校验保持一致） */
     private static final String PHONE_REGEX = "^1[3-9]\\d{9}$";
 
+    /** 连续登录失败上限：达到后锁定一段时间，防止在线暴力破解 */
+    private static final int MAX_LOGIN_FAILS = 5;
+
+    /** 失败计数窗口同时也是锁定时长 */
+    private static final Duration LOGIN_FAIL_WINDOW = Duration.ofMinutes(5);
+
     @Override
     public LoginVO login(LoginDTO loginDTO) {
+        String username = loginDTO.getUsername().trim();
+        // 0. 先看是否已被锁定，避免继续消耗 BCrypt 校验
+        assertNotLocked(username);
         // 1. 查询用户
         SysUser user = sysUserMapper.selectOne(new LambdaQueryWrapper<SysUser>()
-                .eq(SysUser::getUsername, loginDTO.getUsername()));
+                .eq(SysUser::getUsername, username));
         if (user == null) {
+            recordLoginFail(username);
             throw new BusinessException(ResultCode.LOGIN_FAILED);
         }
         // 2. 校验密码（BCrypt 匹配）
         if (!passwordEncoder.matches(loginDTO.getPassword(), user.getPassword())) {
+            recordLoginFail(username);
             throw new BusinessException(ResultCode.LOGIN_FAILED);
         }
         // 3. 校验账号状态（0禁用 / 1启用 / 2待审核）
         assertLoginable(user.getStatus());
-        // 4. 签发令牌并写缓存
+        // 4. 登录成功，清零失败计数并签发令牌
+        clearLoginFail(username);
         return issueToken(user);
+    }
+
+    /**
+     * 连续失败达到上限则拒绝继续尝试
+     *
+     * <p>计数存 Redis 并带 5 分钟 TTL：既限制单账号暴力破解，
+     * 也不会因为长期未登录而误锁。用户不存在时同样计数，避免通过响应差异枚举账号。</p>
+     */
+    private void assertNotLocked(String username) {
+        Object cached = redisTemplate.opsForValue().get(RedisKeyConstants.loginFailKey(username));
+        if (cached != null && Long.parseLong(cached.toString()) >= MAX_LOGIN_FAILS) {
+            throw new BusinessException(ResultCode.LOGIN_LOCKED);
+        }
+    }
+
+    private void recordLoginFail(String username) {
+        String key = RedisKeyConstants.loginFailKey(username);
+        Long count = redisTemplate.opsForValue().increment(key);
+        // 首次计数时设置过期，窗口内持续失败则沿用原 TTL（5 分钟后自动解锁）
+        if (count != null && count == 1L) {
+            redisTemplate.expire(key, LOGIN_FAIL_WINDOW);
+        }
+    }
+
+    private void clearLoginFail(String username) {
+        redisTemplate.delete(RedisKeyConstants.loginFailKey(username));
     }
 
     @Override

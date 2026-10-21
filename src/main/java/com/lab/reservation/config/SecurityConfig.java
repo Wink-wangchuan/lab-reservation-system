@@ -5,6 +5,7 @@ import com.lab.reservation.security.RestAccessDeniedHandler;
 import com.lab.reservation.security.RestAuthenticationEntryPoint;
 import jakarta.servlet.DispatcherType;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -19,6 +20,7 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -43,6 +45,15 @@ public class SecurityConfig {
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final RestAuthenticationEntryPoint authenticationEntryPoint;
     private final RestAccessDeniedHandler accessDeniedHandler;
+
+    /**
+     * 允许跨域的来源，逗号分隔
+     *
+     * <p>必须是白名单：配合 {@code allowCredentials=true} 时若允许 {@code *}，
+     * 任意站点都能以用户身份跨域调用接口（CSRF/CORS 配置错误）。</p>
+     */
+    @Value("${cors.allowed-origins:http://localhost:8081,http://localhost:5173}")
+    private String allowedOrigins;
 
     /**
      * 密码加密器（BCrypt）
@@ -105,7 +116,12 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOriginPatterns(List.of("*"));
+        // 白名单来源：由环境变量 CORS_ALLOWED_ORIGINS 注入，禁止使用通配符
+        List<String> origins = Arrays.stream(allowedOrigins.split(","))
+                .map(String::trim)
+                .filter(origin -> !origin.isEmpty())
+                .toList();
+        config.setAllowedOrigins(origins);
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
         // 导出 Excel 时前端需要读取 Content-Disposition 取得文件名，跨域下必须显式暴露
