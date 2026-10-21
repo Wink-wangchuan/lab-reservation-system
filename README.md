@@ -217,6 +217,12 @@ mvn -DskipTests package
 java -jar target/lab-reservation-system.jar --spring.profiles.active=dev
 ```
 
+运行单元测试（状态机等纯逻辑，不依赖 Spring 上下文与数据库）：
+
+```bash
+mvn test
+```
+
 后端默认监听 `http://localhost:8080`，接口前缀 `/api`。
 
 接口文档（Knife4j）：`http://localhost:8080/doc.html`
@@ -531,6 +537,7 @@ ssh <host> 'mv /tmp/app.jar ~/lab-reservation/app.jar \
 | v2.0 | 教师可预约实验室（该单只能由管理员审批） |
 | v2.1 | 教师可发送站内消息 |
 | v2.2 | AI 知识库（19 条业务知识 + 关键词检索 + Redis 缓存）、流式渲染修复、空闲超时看门狗 |
+| v2.3 | 性能与健壮性优化：修复用户列表按角色筛选的分页失真、消除看板与用户列表 N+1 查询、补充高频查询索引、状态机判空修复、新增状态机单元测试 |
 
 各版本的详细改动与踩坑记录见 `deploy/tailnet/README.md`。
 

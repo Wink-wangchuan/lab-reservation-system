@@ -23,6 +23,10 @@ service.interceptors.request.use(
 )
 
 // —— 响应拦截：统一解包 + 错误提示 + 401 跳登录 ——
+// 同一页面往往并发多个请求，令牌失效时会同时返回 401；
+// 用该标记保证只提示并跳转一次，避免连续弹出多条「登录已失效」
+let handlingUnauthorized = false
+
 service.interceptors.response.use(
   (response) => {
     // 文件下载（二进制）直接返回
@@ -42,9 +46,15 @@ service.interceptors.response.use(
     // HTTP 层错误
     const status = error.response?.status
     if (status === 401) {
-      ElMessage.error('登录已失效，请重新登录')
-      removeToken()
-      router.push('/login')
+      if (!handlingUnauthorized) {
+        handlingUnauthorized = true
+        ElMessage.error('登录已失效，请重新登录')
+        removeToken()
+        router.push('/login').finally(() => {
+          // 留出跳转时间后复位，保证新会话再次过期时仍能正常提示
+          setTimeout(() => { handlingUnauthorized = false }, 1000)
+        })
+      }
     } else if (status === 403) {
       ElMessage.error('无权限访问该资源')
     } else {

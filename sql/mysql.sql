@@ -185,6 +185,7 @@ CREATE TABLE lab_reservation (
     PRIMARY KEY (id),
     UNIQUE KEY uk_reservation_no (reservation_no),
     KEY idx_reserve_scope (lab_id, reserve_date, start_time, end_time),
+    KEY idx_reserve_date_status (reserve_date, status),
     KEY idx_reserve_student (student_id),
     KEY idx_reserve_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='预约单表(含状态机)';
@@ -228,7 +229,8 @@ CREATE TABLE device (
     update_time    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (id),
     UNIQUE KEY uk_device_code (device_code),
-    KEY idx_device_lab (lab_id)
+    KEY idx_device_lab (lab_id),
+    KEY idx_device_fault (fault_status, lab_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='设备台账表';
 
 -- 2.6 设备报修单表（报修闭环）
@@ -324,6 +326,7 @@ CREATE TABLE sys_notice (
     update_time DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (id),
     KEY idx_notice_user (user_id, read_flag),
+    KEY idx_notice_user_time (user_id, create_time),
     KEY idx_notice_type (notice_type)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='站内消息表';
 

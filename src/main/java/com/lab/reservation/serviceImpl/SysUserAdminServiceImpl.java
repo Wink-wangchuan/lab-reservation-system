@@ -36,8 +36,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import cn.hutool.core.util.StrUtil;
 
-import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -92,22 +94,24 @@ public class SysUserAdminServiceImpl implements SysUserAdminService {
                         .or().like(SysUser::getRealName, keyword)
                         .or().like(SysUser::getPhone, keyword))
                 .eq(status != null, SysUser::getStatus, status)
+                // 角色过滤必须下推到 SQL：若先按页取 10 条再在内存里过滤，
+                // 当页条数会少于 size，而 total 仍是全部用户数，分页结果与实际不符
+                .exists(roleId != null,
+                        "SELECT 1 FROM sys_user_role ur WHERE ur.user_id = sys_user.id AND ur.role_id = {0}",
+                        roleId)
                 .orderByDesc(SysUser::getCreateTime);
         Page<SysUser> entityPage = new Page<>(current, size);
         IPage<SysUser> result = userMapper.selectPage(entityPage, wrapper);
 
         Page<SysUserVO> voResult = new Page<>(result.getCurrent(), result.getSize(), result.getTotal());
-        List<SysUserVO> vos = result.getRecords().stream()
-                .filter(u -> roleId == null || hasRole(u.getId(), roleId))
-                .map(this::convert).toList();
-        voResult.setRecords(vos);
+        voResult.setRecords(toVOList(result.getRecords()));
         return voResult;
     }
 
     @Override
     public SysUserVO detail(Long id) {
         SysUser user = getUser(id);
-        return convert(user);
+        return toVOList(List.of(user)).get(0);
     }
 
     @Override
@@ -316,13 +320,6 @@ public class SysUserAdminServiceImpl implements SysUserAdminService {
                 jwtProperties.getExpiration(), TimeUnit.MILLISECONDS);
     }
 
-    private boolean hasRole(Long userId, Long roleId) {
-        Long count = userRoleMapper.selectCount(new LambdaQueryWrapper<SysUserRole>()
-                .eq(SysUserRole::getUserId, userId)
-                .eq(SysUserRole::getRoleId, roleId));
-        return count != null && count > 0;
-    }
-
     /** 统计用户当前绑定的角色数量（用于审核时校验是否已完成角色分配） */
     private long countUserRoles(Long userId) {
         Long count = userRoleMapper.selectCount(new LambdaQueryWrapper<SysUserRole>()
@@ -342,25 +339,39 @@ public class SysUserAdminServiceImpl implements SysUserAdminService {
         });
     }
 
-    /** 实体 -> VO（带角色信息），不暴露密码 */
-    private SysUserVO convert(SysUser user) {
-        SysUserVO vo = new SysUserVO();
-        BeanUtils.copyProperties(user, vo);
-        // 装配角色
-        List<SysUserRole> rels = userRoleMapper.selectList(
-                new LambdaQueryWrapper<SysUserRole>()
-                        .eq(SysUserRole::getUserId, user.getId()));
-        List<Long> roleIds = new ArrayList<>();
-        List<String> roleNames = new ArrayList<>();
-        for (SysUserRole rel : rels) {
-            SysRole role = roleMapper.selectById(rel.getRoleId());
-            if (role != null) {
-                roleIds.add(role.getId());
-                roleNames.add(role.getRoleName());
-            }
+    /**
+     * 批量把实体转成 VO 并装配角色。
+     *
+     * <p>角色关系与角色详情各只查一次，避免逐用户、逐角色查询造成的 N+1：
+     * 原先一页 10 个用户会触发 10 次角色关系查询 + N 次角色详情查询。</p>
+     */
+    private List<SysUserVO> toVOList(List<SysUser> users) {
+        if (users == null || users.isEmpty()) {
+            return List.of();
         }
-        vo.setRoleIds(roleIds);
-        vo.setRoleNames(roleNames);
-        return vo;
+        List<Long> userIds = users.stream().map(SysUser::getId).toList();
+        // 一次取出这批用户的全部角色关系
+        List<SysUserRole> rels = userRoleMapper.selectList(new LambdaQueryWrapper<SysUserRole>()
+                .in(SysUserRole::getUserId, userIds));
+        // 一次取出涉及的全部角色
+        Set<Long> roleIds = rels.stream().map(SysUserRole::getRoleId).collect(Collectors.toSet());
+        Map<Long, SysRole> roleMap = roleIds.isEmpty()
+                ? Map.of()
+                : roleMapper.selectBatchIds(roleIds).stream()
+                        .collect(Collectors.toMap(SysRole::getId, r -> r));
+        Map<Long, List<SysUserRole>> relByUser = rels.stream()
+                .collect(Collectors.groupingBy(SysUserRole::getUserId));
+
+        return users.stream().map(user -> {
+            SysUserVO vo = new SysUserVO();
+            BeanUtils.copyProperties(user, vo);
+            List<SysRole> roles = relByUser.getOrDefault(user.getId(), List.of()).stream()
+                    .map(rel -> roleMap.get(rel.getRoleId()))
+                    .filter(Objects::nonNull)
+                    .toList();
+            vo.setRoleIds(roles.stream().map(SysRole::getId).toList());
+            vo.setRoleNames(roles.stream().map(SysRole::getRoleName).toList());
+            return vo;
+        }).toList();
     }
 }

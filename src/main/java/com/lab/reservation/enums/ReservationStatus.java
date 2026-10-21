@@ -53,7 +53,9 @@ public enum ReservationStatus {
      * @return true 允许流转
      */
     public static boolean canTransition(ReservationStatus from, ReservationStatus to) {
-        if (from == null) {
+        // 任一为 null 一律视为非法流转：Set.of(...).contains(null) 会抛 NPE，
+        // 而调用方可能传入数据库里的未知状态解析结果
+        if (from == null || to == null) {
             return false;
         }
         return switch (from) {

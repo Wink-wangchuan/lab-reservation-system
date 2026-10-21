@@ -40,6 +40,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -233,6 +234,15 @@ public class StatisticsServiceImpl implements StatisticsService {
         Map<Long, List<LabReservation>> byLab = windowReservations.stream()
                 .collect(Collectors.groupingBy(LabReservation::getLabId));
 
+        // 一次查出全部故障设备所在实验室，避免在下面的循环里逐间实验室查一次（N+1）
+        Set<Long> lockedLabIds = deviceMapper.selectList(new LambdaQueryWrapper<Device>()
+                        .select(Device::getLabId)
+                        .eq(Device::getFaultStatus, 1))
+                .stream()
+                .map(Device::getLabId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
         List<LabBoardVO> list = new ArrayList<>();
         for (LabInfo lab : labs) {
             List<LabReservation> items = byLab.getOrDefault(lab.getId(), List.of());
@@ -254,7 +264,7 @@ public class StatisticsServiceImpl implements StatisticsService {
 
             boolean closed = lab.getOpenStatus() == null || lab.getOpenStatus() != 1
                     || lab.getEnableReserve() == null || lab.getEnableReserve() != 1;
-            boolean locked = !deviceMapper.selectFaultDevicesByLabId(lab.getId()).isEmpty();
+            boolean locked = lockedLabIds.contains(lab.getId());
             // 使用中：今日已通过、且当前时刻落在时段内
             LabReservation current = approvedToday.stream()
                     .filter(r -> !r.getStartTime().isAfter(now) && r.getEndTime().isAfter(now))

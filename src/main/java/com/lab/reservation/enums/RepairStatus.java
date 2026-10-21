@@ -37,7 +37,8 @@ public enum RepairStatus {
      * 从当前状态是否可流转到目标状态
      */
     public static boolean canTransition(RepairStatus from, RepairStatus to) {
-        if (from == null) {
+        // 任一为 null 一律视为非法：Set.of(...).contains(null) 会抛 NPE
+        if (from == null || to == null) {
             return false;
         }
         return switch (from) {
