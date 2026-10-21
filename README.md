@@ -129,34 +129,38 @@
 ```mermaid
 flowchart TB
     subgraph Client["浏览器"]
-        A[Vue 3 SPA<br/>Element Plus + Pinia]
+        A["Vue 3 SPA<br/>Element Plus 与 Pinia"]
     end
 
     subgraph Gateway["接入层"]
-        B[JwtAuthenticationFilter<br/>令牌解析与权限装配]
-        C[CORS / 全局异常处理<br/>统一 Result 包装]
+        B["JwtAuthenticationFilter<br/>令牌解析与权限装配"]
+        C["CORS 与全局异常处理<br/>统一 Result 包装"]
     end
 
     subgraph App["业务层"]
-        D[Controller<br/>@PreAuthorize 细粒度鉴权]
-        E[Service / ServiceImpl<br/>状态机 + 事务 + 行锁]
-        F[定时任务<br/>签到状态推进]
+        D["Controller<br/>PreAuthorize 细粒度鉴权"]
+        E["Service 与 ServiceImpl<br/>状态机、事务、行锁"]
+        F["定时任务<br/>签到状态推进"]
     end
 
     subgraph Data["数据层"]
-        G[(MySQL<br/>15 张表)]
-        H[(Redis<br/>缓存 / 验证码 / 会话)]
+        G[("MySQL<br/>15 张表")]
+        H[("Redis<br/>缓存与验证码与会话")]
     end
 
     subgraph External["外部服务"]
-        I[LLM 网关<br/>OpenAI 兼容协议]
+        I["LLM 网关<br/>OpenAI 兼容协议"]
     end
 
-    A -->|HTTPS + JWT| B --> C --> D --> E --> G
+    A -->|"HTTPS 与 JWT"| B
+    B --> C
+    C --> D
+    D --> E
+    E --> G
     E --> H
     F --> E
-    E -->|SSE 流式代理| I
-    I -.->|delta 增量| A
+    E -->|"SSE 流式代理"| I
+    I -.->|"delta 增量"| A
 ```
 
 **请求链路要点**
@@ -337,12 +341,12 @@ a < d  AND  b > c
 
 ```mermaid
 flowchart LR
-    A[审批通过] --> B[生成 6 位核销码]
-    B --> C{签到时间窗<br/>开始前 30 分钟 ~ 结束时刻}
-    C -->|核销成功| D[已签到]
-    C -->|超时未签| E[已过期]
-    D -->|签退| F[已完成]
-    D -->|超时未签退| F
+    A["审批通过"] --> B["生成 6 位核销码"]
+    B --> C{"签到时间窗<br/>开始前 30 分钟至结束时刻"}
+    C -->|"核销成功"| D["已签到"]
+    C -->|"超时未签"| E["已过期"]
+    D -->|"签退"| F["已完成"]
+    D -->|"超时未签退"| F
 ```
 
 - 核销码仅**预约本人**与**超级管理员**可见；教师只能现场输入，防止提前泄露
@@ -357,13 +361,13 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    Q[用户提问] --> K[知识库检索<br/>关键词计分 Top5]
-    Q --> D[意图识别<br/>按关键词注入实时数据]
-    K --> P[组装 system prompt]
+    Q["用户提问"] --> K["知识库检索<br/>关键词计分取 Top5"]
+    Q --> D["意图识别<br/>按关键词注入实时数据"]
+    K --> P["组装 system prompt"]
     D --> P
-    P --> L[LLM 网关<br/>stream=true]
-    L -->|SSE delta| F[前端逐段渲染]
-    L --> H[Redis 会话历史]
+    P --> L["LLM 网关<br/>流式输出"]
+    L -->|"SSE 增量"| F["前端逐段渲染"]
+    L --> H["Redis 会话历史"]
 ```
 
 工程上的几个关键处理：
