@@ -384,8 +384,9 @@ onBeforeUnmount(() => {
 .empty-logo {
   width: 62px;
   height: 62px;
-  border-radius: 20px;
-  // 头像图片铺满容器，需裁剪到圆角
+  // 与消息气泡的头像保持一致，同为圆形
+  border-radius: 50%;
+  // 头像图片铺满容器，需裁剪成圆形
   overflow: hidden;
   background: var(--accent-gradient);
   color: #fff;
@@ -464,8 +465,9 @@ onBeforeUnmount(() => {
   width: 34px;
   height: 34px;
   flex-shrink: 0;
-  border-radius: 12px;
-  // 头像图片铺满容器，需裁剪到圆角
+  // 圆形头像
+  border-radius: 50%;
+  // 头像图片铺满容器，需裁剪成圆形
   overflow: hidden;
   display: flex;
   align-items: center;
@@ -478,7 +480,7 @@ onBeforeUnmount(() => {
     background: transparent;
 
     :deep(.el-avatar) {
-      border-radius: 12px;
+      border-radius: 50%;
       background: linear-gradient(135deg, #5b8cff, #35b3e0);
       font-size: 14px;
       font-weight: 600;
@@ -684,7 +686,7 @@ onBeforeUnmount(() => {
   .avatar {
     width: 30px;
     height: 30px;
-    border-radius: 10px;
+    border-radius: 50%;
   }
 
   .hint {
