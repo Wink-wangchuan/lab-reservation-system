@@ -37,6 +37,16 @@
           <template #extra>
             <span class="chart-chip">共 {{ totalReservation }} 笔</span>
           </template>
+          <!-- 窄屏图例改由 HTML 排版，避免换行文字压住环形图 -->
+          <template #footer>
+            <ul v-if="compact" class="pie-legend">
+              <li v-for="(s, i) in rawStatus" :key="s.name">
+                <i :style="{ background: STATUS_COLORS[i % STATUS_COLORS.length] }"></i>
+                <span>{{ s.name }}</span>
+                <b>{{ s.value }}</b>
+              </li>
+            </ul>
+          </template>
         </ChartBox>
       </div>
     </div>
@@ -44,7 +54,18 @@
     <!-- 底部图表行 -->
     <div class="chart-grid">
       <ChartBox title="热门实验室 TOP10" :option="hotOption" :height="chartH2" color="#f7a35c" />
-      <ChartBox title="实验室类型分布" :option="typeOption" :height="chartH2" color="#c46bff" />
+      <ChartBox title="实验室类型分布" :option="typeOption" :height="chartH2" color="#c46bff">
+        <!-- 窄屏图例改由 HTML 排版，避免换行文字压住环形图 -->
+        <template #footer>
+          <ul v-if="compact" class="pie-legend">
+            <li v-for="(t, i) in rawType" :key="t.name">
+              <i :style="{ background: TYPE_COLORS[i % TYPE_COLORS.length] }"></i>
+              <span>{{ t.name }}</span>
+              <b>{{ t.value }}</b>
+            </li>
+          </ul>
+        </template>
+      </ChartBox>
     </div>
   </div>
 </template>
@@ -206,18 +227,25 @@ function buildTrend(trend) {
   }
 }
 
+// 环形图配色：窄屏 HTML 图例与 ECharts 图例共用，保证颜色对应一致
+const STATUS_COLORS = ['#5b8cff', '#35e0a1', '#ff8a5c', '#ff4d6d', '#8f6bff', '#22c1c3']
+const TYPE_COLORS = ['#5b8cff', '#22c1c3', '#f7a35c', '#8f6bff', '#ff6b81', '#35e0a1', '#ffb84d']
+
 function buildStatus(status) {
-  const pieColors = ['#5b8cff', '#35e0a1', '#ff8a5c', '#ff4d6d', '#8f6bff', '#22c1c3']
+  const pieColors = STATUS_COLORS
   const c = compact.value
   const p = palette.value
   statusOption.value = {
     tooltip: { trigger: 'item', formatter: '{b}: {c} 笔（{d}%）', ...tooltipStyle.value },
-    legend: { bottom: 0, icon: 'circle', itemWidth: 9, textStyle: { color: p.label } },
+    // 窄屏图例由卡片底部的 HTML 列表承载，避免换行文字压住环体
+    legend: c
+      ? { show: false }
+      : { bottom: 0, icon: 'circle', itemWidth: 9, textStyle: { color: p.label } },
     color: pieColors,
     series: [{
       name: '状态', type: 'pie',
-      radius: c ? ['40%', '62%'] : ['46%', '68%'],
-      center: c ? ['50%', '44%'] : ['50%', '46%'],
+      radius: c ? ['36%', '60%'] : ['46%', '68%'],
+      center: c ? ['50%', '50%'] : ['50%', '46%'],
       avoidLabelOverlap: true,
       itemStyle: { borderRadius: 8, borderColor: p.sectorBorder, borderWidth: 2 },
       // 窄屏改用图例承载名称，避免扇区标签重叠
@@ -234,13 +262,21 @@ function buildHot(hot) {
   const data = hot.slice().reverse()
   const c = compact.value
   const p = palette.value
+  // 窄屏纵轴留白按最长实验室名计算，避免名称被裁掉（上限 132px，给柱体留出空间）
+  const labelFont = c ? 10 : 12
+  const longest = data.reduce((m, h) => Math.max(m, (h.labName || '未知').length), 0)
+  const labelWidth = c ? Math.min(132, longest * labelFont + 12) : 110
   hotOption.value = {
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, ...tooltipStyle.value },
     grid: c
-      ? { left: 74, right: 14, top: 12, bottom: 28 }
+      ? { left: labelWidth, right: 26, top: 12, bottom: 28 }
       : { left: 110, right: 30, top: 16, bottom: 34 },
     xAxis: { type: 'value', minInterval: 1, splitLine: { lineStyle: { color: p.splitLine } }, axisLabel: { color: p.label } },
-    yAxis: { type: 'category', data: data.map((h) => h.labName || '未知'), ...axisStyle.value },
+    yAxis: {
+      type: 'category', data: data.map((h) => h.labName || '未知'),
+      ...axisStyle.value,
+      axisLabel: { color: p.label, fontSize: labelFont }
+    },
     series: [{
       type: 'bar', data: data.map((h) => h.bookingCount),
       barWidth: c ? 12 : 16,
@@ -254,17 +290,20 @@ function buildHot(hot) {
 }
 
 function buildType(types) {
-  const colors = ['#5b8cff', '#22c1c3', '#f7a35c', '#8f6bff', '#ff6b81', '#35e0a1', '#ffb84d']
+  const colors = TYPE_COLORS
   const c = compact.value
   const p = palette.value
   typeOption.value = {
     tooltip: { trigger: 'item', formatter: '{b}: {c} 间（{d}%）', ...tooltipStyle.value },
-    legend: { bottom: 0, icon: 'circle', itemWidth: 9, textStyle: { color: p.label } },
+    // 窄屏图例由卡片底部的 HTML 列表承载，类型再多也不会压住环形图
+    legend: c
+      ? { show: false }
+      : { bottom: 0, icon: 'circle', itemWidth: 9, textStyle: { color: p.label } },
     color: colors,
     series: [{
       name: '类型', type: 'pie',
-      radius: c ? ['38%', '62%'] : ['40%', '66%'],
-      center: c ? ['50%', '44%'] : ['50%', '46%'],
+      radius: c ? ['36%', '60%'] : ['40%', '66%'],
+      center: c ? ['50%', '50%'] : ['50%', '46%'],
       itemStyle: { borderRadius: 8, borderColor: p.sectorBorder, borderWidth: 2 },
       label: c
         ? { show: false }
@@ -334,6 +373,38 @@ onMounted(loadAll)
   padding: 2px 8px;
   border-radius: 999px;
   white-space: nowrap;
+}
+
+// 窄屏环形图图例：普通流式排版，换行时只会向下撑高卡片，不会覆盖图表
+.pie-legend {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+
+  li {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--ink-3);
+    min-width: 0;
+  }
+
+  i {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+
+  b {
+    font-weight: 600;
+    color: var(--ink-2);
+  }
 }
 
 // 中屏：指标卡回落 2 列（8 张卡每行填满）；待办与图表、图表同行改单列堆叠

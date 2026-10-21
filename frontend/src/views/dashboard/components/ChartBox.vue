@@ -8,6 +8,8 @@
       <slot name="extra"></slot>
     </div>
     <div ref="chartRef" class="chart-body" :style="{ height: height }"></div>
+    <!-- 图例等附属信息：由父级以普通 HTML 排版，避免在窄屏下覆盖图表本体 -->
+    <slot name="footer"></slot>
   </div>
 </template>
 
