@@ -128,14 +128,14 @@ const statusMap = { PENDING: '待处理', REPAIRING: '维修中', COMPLETED: '�
 const statusTypeMap = { PENDING: 'warning', REPAIRING: 'primary', COMPLETED: 'success', CANCELLED: 'info' }
 function statusType(s) { return statusTypeMap[s] || 'info' }
 
-// 闭环步骤条反映"当前业务状态"，不再无条件跟着历史工单走：
-//  1) 存在待处理 / 维修中的工单 → 跟随最新活跃工单的进度
-//  2) 没有活跃工单 → 只有 5 分钟内刚完成的单子才展示"全部完成"，
-//     更早的历史完成单直接停在「提交报修」，避免一进页面就三步全绿
+// 闭环步骤条只反映"当前活跃工单"，历史完成单不再参与点亮：
+//  - 有待处理单 → 第 1 步已完成（绿），第 2 步进行中
+//  - 有维修中单 → 前两步已完成（绿），第 3 步进行中
+//  - 没有活跃单 → 直接停在「提交报修」，不做任何自动点亮
+// "完成维修"的全绿只在本次页面里点过「完成维修」后出现，10 秒后自动复位
 const FLOW_RESET_DELAY = 10000
-const FLOW_RECENT_MS = 5 * 60 * 1000
-// el-steps 的 active 表示"已完成步骤数"：COMPLETED 要取 3 才能让第三步也变成绿色已完成态
-const FLOW_STEP = { PENDING: 0, REPAIRING: 1, COMPLETED: 3, CANCELLED: 0 }
+// el-steps 的 active 表示"已完成步骤数"
+const FLOW_STEP = { PENDING: 1, REPAIRING: 2 }
 
 const flowStage = ref(0)
 const flowReset = ref(false)
@@ -143,27 +143,12 @@ let flowResetTimer = null
 
 const flowActive = computed(() => (flowReset.value ? 0 : flowStage.value))
 
-/** 工单是否在近期刚完成（用完成时间判定，缺失时退回创建时间） */
-function isFreshCompleted(row) {
-  const at = row.finishTime || row.createTime
-  if (!at) return false
-  return Date.now() - new Date(at).getTime() < FLOW_RECENT_MS
-}
-
-/** 每次列表刷新后重新计算步骤：有活跃单跟活跃单，否则看是否刚完成，最后回到第一步 */
+/** 列表刷新后同步步骤：只看待处理 / 维修中的活跃工单，没有就回到第一步 */
 function syncFlowStage() {
-  const list = records.value
-  const active = list.find((r) => r.status === 'PENDING' || r.status === 'REPAIRING')
-  const done = list.find((r) => r.status === 'COMPLETED')
-  const stage = active ? FLOW_STEP[active.status] : (done && isFreshCompleted(done) ? 3 : 0)
-  flowStage.value = stage
-
+  const active = records.value.find((r) => r.status === 'PENDING' || r.status === 'REPAIRING')
   clearTimeout(flowResetTimer)
   flowReset.value = false
-  // 出现完成态后停留 10 秒再回到第一步；历史完成单不满足"近期完成"条件，会直接停在第一步
-  if (stage === 3) {
-    flowResetTimer = setTimeout(() => { flowReset.value = true }, FLOW_RESET_DELAY)
-  }
+  flowStage.value = active ? FLOW_STEP[active.status] : 0
 }
 
 onBeforeUnmount(() => clearTimeout(flowResetTimer))
@@ -236,8 +221,17 @@ function doComplete(row) {
   }).then(async ({ value }) => {
     await repairComplete(row.id, value)
     ElMessage.success('维修完成，设备已自动解锁')
-    load()
+    await load()          // 先刷新列表（会把步骤重置为第一步）
+    showFlowCompleted()   // 再展示全绿并启动 10 秒复位
   }).catch(() => {})
+}
+
+/** 演示用：本页刚完成维修后全绿停留 10 秒再回第一步；刷新页面不会重现这个状态 */
+function showFlowCompleted() {
+  clearTimeout(flowResetTimer)
+  flowReset.value = false
+  flowStage.value = 3
+  flowResetTimer = setTimeout(() => { flowReset.value = true }, FLOW_RESET_DELAY)
 }
 
 function doCancel(row) {
