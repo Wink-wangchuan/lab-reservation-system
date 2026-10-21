@@ -130,13 +130,16 @@ function statusType(s) { return statusTypeMap[s] || 'info' }
 
 // 闭环演示：完成维修后停留 10 秒，再回退到「提交报修」，便于反复演示整条链路
 const FLOW_RESET_DELAY = 10000
+// el-steps 的 active 表示"已完成步骤数"：COMPLETED 要取 3 才能让第三步也变成绿色已完成态，
+// 若取 2 则第三步仍在"进行中"，显示为蓝色且不会出现绿色对勾
+const FLOW_STEP = { PENDING: 0, REPAIRING: 1, COMPLETED: 3, CANCELLED: 0 }
 const flowReset = ref(false)
 let flowResetTimer = null
 
 // 步骤跟随最新一条工单（列表按创建时间倒序），保证新提报修时从第一步重新开始
 const flowActive = computed(() => {
   if (flowReset.value) return 0
-  return { PENDING: 0, REPAIRING: 1, COMPLETED: 2, CANCELLED: 0 }[records.value[0]?.status] ?? 0
+  return FLOW_STEP[records.value[0]?.status] ?? 0
 })
 
 watch(() => records.value[0]?.status, (status) => {
