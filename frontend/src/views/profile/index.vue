@@ -300,21 +300,26 @@ onMounted(load)
 
 .pi-row {
   display: flex;
-  align-items: center;
+  // 右侧内容可能折成多行，与标签顶端对齐更整齐
+  align-items: flex-start;
   justify-content: space-between;
+  gap: 12px;
   font-size: 12.5px;
 
   span {
     color: var(--ink-3);
+    // 标签不被长内容挤压
+    flex-shrink: 0;
   }
 
   b {
     color: var(--ink-1);
     font-weight: 600;
-    max-width: 60%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    max-width: 62%;
+    text-align: right;
+    // 长邮箱没有可断行的空格，强制在任意位置换行以完整显示（不用省略号截断）
+    word-break: break-all;
+    overflow-wrap: anywhere;
   }
 }
 
