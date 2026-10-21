@@ -95,7 +95,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import {
   repairPage, repairMine, repairSubmit, repairStart, repairComplete,
   repairCancel, repairDeviceOptions
@@ -128,13 +128,26 @@ const statusMap = { PENDING: '待处理', REPAIRING: '维修中', COMPLETED: '�
 const statusTypeMap = { PENDING: 'warning', REPAIRING: 'primary', COMPLETED: 'success', CANCELLED: 'info' }
 function statusType(s) { return statusTypeMap[s] || 'info' }
 
+// 闭环演示：完成维修后停留 10 秒，再回退到「提交报修」，便于反复演示整条链路
+const FLOW_RESET_DELAY = 10000
+const flowReset = ref(false)
+let flowResetTimer = null
+
+// 步骤跟随最新一条工单（列表按创建时间倒序），保证新提报修时从第一步重新开始
 const flowActive = computed(() => {
-  const maxStatus = records.value.reduce((m, r) => {
-    const v = { PENDING: 0, REPAIRING: 1, COMPLETED: 2, CANCELLED: 0 }[r.status] ?? 0
-    return Math.max(m, v)
-  }, 0)
-  return maxStatus
+  if (flowReset.value) return 0
+  return { PENDING: 0, REPAIRING: 1, COMPLETED: 2, CANCELLED: 0 }[records.value[0]?.status] ?? 0
 })
+
+watch(() => records.value[0]?.status, (status) => {
+  clearTimeout(flowResetTimer)
+  flowReset.value = false
+  if (status === 'COMPLETED') {
+    flowResetTimer = setTimeout(() => { flowReset.value = true }, FLOW_RESET_DELAY)
+  }
+}, { immediate: true })
+
+onBeforeUnmount(() => clearTimeout(flowResetTimer))
 
 const devices = ref([])
 const submitVisible = ref(false)
