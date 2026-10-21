@@ -17,6 +17,12 @@
       </div>
 
       <div class="topbar-right">
+        <!-- 当前日期时间 -->
+        <div class="clock" :title="clockDate + ' ' + clockTime">
+          <span class="clock-date">{{ clockDate }}</span>
+          <span class="clock-time">{{ clockTime }}</span>
+        </div>
+
         <!-- 主题切换 -->
         <button class="icon-btn" type="button" :title="isDark ? '切换到浅色' : '切换到深色'" @click="toggleTheme">
           <el-icon :size="18"><component :is="isDark ? 'Sunny' : 'Moon'" /></el-icon>
@@ -110,6 +116,21 @@ const drawerVisible = ref(false)
 const unread = ref(0)
 let timer = null
 
+// —— 顶栏时钟 ——
+const now = ref(new Date())
+let clockTimer = null
+const pad2 = (n) => String(n).padStart(2, '0')
+const WEEK_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+
+const clockDate = computed(() => {
+  const d = now.value
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${WEEK_NAMES[d.getDay()]}`
+})
+const clockTime = computed(() => {
+  const d = now.value
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`
+})
+
 // 中屏（769-1024px）折叠为图标导航；窄屏隐藏侧栏走抽屉
 const winW = ref(window.innerWidth)
 const collapseNav = computed(() => winW.value <= 1024)
@@ -202,11 +223,14 @@ onMounted(() => {
   refreshUnread()
   // 轮询未读消息（60s），保证顶栏红点及时
   timer = setInterval(refreshUnread, 60000)
+  // 顶栏时钟每秒刷新
+  clockTimer = setInterval(() => { now.value = new Date() }, 1000)
   window.addEventListener('resize', trackWidth)
 })
 
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer)
+  if (clockTimer) clearInterval(clockTimer)
   window.removeEventListener('resize', trackWidth)
 })
 </script>
@@ -287,6 +311,31 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+// 顶栏日期时间：日期在上、时间在下，右对齐贴近主题按钮
+.clock {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  line-height: 1.25;
+  white-space: nowrap;
+  margin-right: 2px;
+
+  .clock-date {
+    font-size: 11px;
+    color: var(--ink-3);
+  }
+
+  .clock-time {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ink-1);
+    // 等宽数字：秒数跳动时宽度不抖动
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.3px;
+  }
 }
 
 .icon-btn {
@@ -434,6 +483,11 @@ onBeforeUnmount(() => {
 @media (max-width: 768px) {
   .nav-toggle {
     display: flex;
+  }
+
+  // 窄屏顶栏空间紧张，隐藏日期时间
+  .clock {
+    display: none;
   }
 
   .sidebar {
