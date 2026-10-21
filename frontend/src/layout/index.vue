@@ -104,7 +104,7 @@ import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { useTheme } from '@/utils/theme'
-import { noticeUnreadCount } from '@/api'
+import { noticeMine, noticeUnreadCount } from '@/api'
 import SideMenu from './SideMenu.vue'
 
 const route = useRoute()
@@ -186,6 +186,103 @@ async function refreshUnread() {
   } catch {
     // 未读数获取失败不影响主流程
   }
+  await pushNewNotices()
+}
+
+// —— 新消息推送 ——
+// 轮询未读数时顺带拉取最新消息，发现比上次记录更新的消息后：
+//  1) 已授权系统通知 → 弹浏览器系统通知（点击聚焦页面并跳转消息中心）
+//  2) 未授权/不支持 → 页面内弹 ElNotification 兜底
+// 已见消息的最大 ID 按用户存 sessionStorage，刷新页面后不会把旧消息重新弹一遍
+function noticeStorageKey() {
+  return `labwise_last_notice_${userStore.userInfo?.userId ?? 'anon'}`
+}
+let lastNoticeId = 0
+
+function saveLastNoticeId(id) {
+  lastNoticeId = id
+  try {
+    sessionStorage.setItem(noticeStorageKey(), String(id))
+  } catch { /* 隐私模式等场景写不进就仅存内存 */ }
+}
+
+async function pushNewNotices() {
+  try {
+    const page = await noticeMine({ current: 1, size: 5 })
+    const records = page?.records || []
+    if (!records.length) return
+    if (!lastNoticeId) {
+      lastNoticeId = Number(sessionStorage.getItem(noticeStorageKey()) || 0)
+    }
+    const newest = records[0].id
+    if (!lastNoticeId) {
+      // 首次加载只记录基线，不弹历史消息
+      saveLastNoticeId(newest)
+      return
+    }
+    const fresh = records.filter((n) => n.id > lastNoticeId)
+    if (!fresh.length) return
+    saveLastNoticeId(newest)
+    notifyNewNotices(fresh)
+  } catch {
+    // 拉取失败不影响主流程
+  }
+}
+
+/** 浏览器系统通知需要用户手势才能申请授权：监听首次点击后静默申请一次 */
+function askNotifyPermission() {
+  if (!('Notification' in window)) return
+  if (Notification.permission === 'default') {
+    const p = Notification.requestPermission()
+    if (p && typeof p.catch === 'function') p.catch(() => {})
+  }
+}
+
+function notifyNewNotices(list) {
+  const canSystemNotify = 'Notification' in window && Notification.permission === 'granted'
+
+  // 系统通知：同 tag 去重，避免同一消息重复弹；点击聚焦并进入消息中心
+  if (canSystemNotify) {
+    list.slice(0, 3).forEach((n) => {
+      const notification = new Notification(n.title || '新消息', {
+        body: n.content || '',
+        tag: `labwise-notice-${n.id}`,
+        icon: '/favicon.ico'
+      })
+      notification.onclick = () => {
+        window.focus()
+        router.push('/notice')
+        notification.close()
+      }
+    })
+    if (list.length > 3) {
+      const extra = new Notification('消息中心', {
+        body: `还有 ${list.length - 3} 条新消息，点击查看`,
+        tag: 'labwise-notice-more',
+        icon: '/favicon.ico'
+      })
+      extra.onclick = () => { window.focus(); router.push('/notice'); extra.close() }
+    }
+    return
+  }
+
+  // 页内弹窗兜底（未授权系统通知时）
+  list.slice(0, 3).forEach((n) => {
+    ElNotification({
+      title: n.title || '新消息',
+      message: n.content || '',
+      duration: 8000,
+      onClick: () => router.push('/notice')
+    })
+  })
+  if (list.length > 3) {
+    ElNotification({
+      title: '消息中心',
+      message: `还有 ${list.length - 3} 条新消息，点击查看`,
+      duration: 8000,
+      onClick: () => router.push('/notice')
+    })
+  }
 }
 
 function onCommand(cmd) {
@@ -221,8 +318,10 @@ onMounted(() => {
   // （例如管理员调整了角色权限），无条件刷新可避免"必须重新登录菜单才会更新"
   userStore.fetchInfo().catch(() => {})
   refreshUnread()
-  // 轮询未读消息（60s），保证顶栏红点及时
+  // 轮询未读消息与新消息推送（60s），保证顶栏红点与系统通知及时
   timer = setInterval(refreshUnread, 60000)
+  // 系统通知授权必须由用户手势触发：页面首次被点击时静默申请一次
+  window.addEventListener('pointerdown', askNotifyPermission, { once: true })
   // 顶栏时钟每秒刷新
   clockTimer = setInterval(() => { now.value = new Date() }, 1000)
   window.addEventListener('resize', trackWidth)
