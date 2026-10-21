@@ -125,11 +125,34 @@ function hideBroken(e) {
  */
 const mdCache = new Map()
 
+/**
+ * 规范化模型输出中的不可见字符与装饰性符号
+ *
+ * <p>三件事：</p>
+ * <ol>
+ *   <li>模型偶尔输出 {@code ##\u00A0标题}（不间断空格）或全角空格，而 marked 只认
+ *       半角空格/制表符，识别不了就会把 {@code ##} 原样显示出来，这里统一成半角空格</li>
+ *   <li>紧贴文字的 # 补一个空格，保证被识别为 ATX 标题</li>
+ *   <li>去掉 emoji 与带圈数字（1️⃣ 这类 keycap 序列），退化为普通文本，
+ *       避免回答里出现一堆装饰性符号</li>
+ * </ol>
+ */
+function normalizeMarkdown(text) {
+  return text
+    .replace(/[\u00A0\u3000]/g, ' ')
+    .replace(/^(#{1,6})[ \t]*(?=\S)/gm, '$1 ')
+    // keycap 组合（数字 + 变体选择符 + 组合包围键帽）：去掉后两个码点即退化为普通数字
+    .replace(/[\uFE0F\u20E3]/g, '')
+    // 用 Unicode 的 Extended_Pictographic 精确匹配 emoji：
+    // 比手写码点区间可靠（⏰ U+23F0、⚠️ U+26A0、📋 U+1F4CB 等分散在多个区段）
+    .replace(/\p{Extended_Pictographic}/gu, '')
+}
+
 function renderMarkdown(text) {
   if (!text) return ''
   const cached = mdCache.get(text)
   if (cached) return cached
-  const raw = marked.parse(text.trim(), { gfm: true, breaks: true })
+  const raw = marked.parse(normalizeMarkdown(text.trim()), { gfm: true, breaks: true })
   const clean = DOMPurify.sanitize(raw, { USE_PROFILES: { html: true } })
   const out = clean.replace(/<a href="(https?:[^"]*)"/g,
     '<a href="$1" target="_blank" rel="noopener noreferrer"')
