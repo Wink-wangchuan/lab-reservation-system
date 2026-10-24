@@ -28,7 +28,9 @@ import com.lab.reservation.service.ReservationService;
 import com.lab.reservation.service.StatisticsService;
 import com.lab.reservation.vo.ReservationVO;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -64,6 +66,7 @@ import java.util.Set;
  * @since 1.0.0
  */
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class ReservationServiceImpl implements ReservationService {
 
@@ -221,6 +224,41 @@ public class ReservationServiceImpl implements ReservationService {
                             current.getRealName(), reservation.getLabName(),
                             reservation.getReserveDate(), reservation.getStartTime(),
                             reservation.getEndTime()));
+        }
+    }
+
+    /**
+     * 定时推进已过期的预约（每 5 分钟）：
+     *
+     * <p>已通过（APPROVED）的预约在结束时刻之后自动流转为已完成（COMPLETED），
+     * 与状态机中「APPROVED -> COMPLETED（到时自动完成）」的定义保持一致。</p>
+     *
+     * <p>这样处理后，过期预约既不会长期停留在「已通过」造成状态失真，
+     * 也不会再出现"日期已过仍可取消"的问题（COMPLETED 为终态，取消会被状态机拦住）。</p>
+     */
+    @Scheduled(cron = "0 */5 * * * ?")
+    @Transactional(rollbackFor = Exception.class)
+    public void autoCompleteExpired() {
+        LocalDate today = LocalDate.now();
+        LocalDateTime now = LocalDateTime.now();
+        // 只扫今天及更早、且仍处于已通过状态的单，避免全表扫描与误改未来预约
+        List<LabReservation> list = reservationMapper.selectList(new LambdaQueryWrapper<LabReservation>()
+                .eq(LabReservation::getStatus, ReservationStatus.APPROVED.name())
+                .le(LabReservation::getReserveDate, today));
+        int changed = 0;
+        for (LabReservation reservation : list) {
+            LocalDateTime endAt = LocalDateTime.of(reservation.getReserveDate(), reservation.getEndTime());
+            if (now.isBefore(endAt)) {
+                continue;
+            }
+            reservation.setStatus(ReservationStatus.COMPLETED.name());
+            reservationMapper.updateById(reservation);
+            changed++;
+        }
+        if (changed > 0) {
+            // 预约状态影响驾驶舱统计，变更后必须让缓存失效
+            statisticsService.evictStatCache();
+            log.info("[预约] 过期预约自动完成，本次更新 {} 条", changed);
         }
     }
 

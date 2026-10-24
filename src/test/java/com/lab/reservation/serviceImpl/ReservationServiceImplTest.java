@@ -416,6 +416,49 @@ class ReservationServiceImplTest {
         }
     }
 
+    // ==================== 过期预约自动完成 ====================
+
+    @Nested
+    @DisplayName("过期预约自动完成")
+    class AutoCompleteExpired {
+
+        @Test
+        @DisplayName("结束时刻已过的已通过预约自动置为已完成")
+        void completeExpiredApproved() {
+            LabReservation expired = pendingReservation(STUDENT_ID);
+            expired.setStatus(ReservationStatus.APPROVED.name());
+            expired.setReserveDate(LocalDate.now().minusDays(1));
+            // 当天但时段尚未结束的预约不应被推进
+            LabReservation ongoing = pendingReservation(STUDENT_ID);
+            ongoing.setStatus(ReservationStatus.APPROVED.name());
+            ongoing.setReserveDate(LocalDate.now());
+            ongoing.setEndTime(LocalTime.of(23, 59, 59));
+            when(reservationMapper.selectList(any())).thenReturn(List.of(expired, ongoing));
+
+            reservationService.autoCompleteExpired();
+
+            assertEquals(ReservationStatus.COMPLETED.name(), expired.getStatus());
+            assertEquals(ReservationStatus.APPROVED.name(), ongoing.getStatus());
+            verify(reservationMapper).updateById(expired);
+            verify(statisticsService).evictStatCache();
+        }
+
+        @Test
+        @DisplayName("没有过期预约时不写库、不失效统计缓存")
+        void nothingToDo() {
+            LabReservation future = pendingReservation(STUDENT_ID);
+            future.setStatus(ReservationStatus.APPROVED.name());
+            future.setReserveDate(LocalDate.now().plusDays(1));
+            when(reservationMapper.selectList(any())).thenReturn(List.of(future));
+
+            reservationService.autoCompleteExpired();
+
+            assertEquals(ReservationStatus.APPROVED.name(), future.getStatus());
+            verify(reservationMapper, never()).updateById(any(LabReservation.class));
+            verify(statisticsService, never()).evictStatCache();
+        }
+    }
+
     // ==================== 测试数据构造 ====================
 
     private LoginUser loginUser(Long id, String realName, String roleCode) {
