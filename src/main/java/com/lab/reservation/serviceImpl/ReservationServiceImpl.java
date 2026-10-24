@@ -194,6 +194,14 @@ public class ReservationServiceImpl implements ReservationService {
             throw new BusinessException(ResultCode.RESERVATION_STATUS_ERROR,
                     "当前状态[" + from.getDesc() + "]不允许取消");
         }
+        // 时间校验：已通过的预约一旦开始（含已结束）就不允许再取消，
+        // 否则过期预约仍能被"取消"，等于篡改历史记录与统计数据
+        if (from == ReservationStatus.APPROVED
+                && !LocalDateTime.now().isBefore(
+                        LocalDateTime.of(reservation.getReserveDate(), reservation.getStartTime()))) {
+            throw new BusinessException(ResultCode.RESERVATION_STATUS_ERROR,
+                    "预约已开始或已结束，无法取消");
+        }
         boolean wasPending = from == ReservationStatus.PENDING;
         reservation.setStatus(ReservationStatus.CANCELLED.name());
         reservation.setCancelReason(reason);

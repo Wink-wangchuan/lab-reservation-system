@@ -33,7 +33,7 @@
         <el-table-column label="操作" width="140" fixed="right" align="center">
           <template #default="{ row }">
             <el-button
-              v-if="row.status === 'PENDING' || row.status === 'APPROVED'"
+              v-if="canCancel(row)"
               link type="danger" @click="doCancel(row)"
             >取消</el-button>
             <el-button link type="primary" @click="viewDetail(row)">详情</el-button>
@@ -159,6 +159,16 @@ function statusType(s) { return statusTypeMap[s] || 'info' }
 
 // 后端时间字段带秒（HH:mm:ss），页面统一按 HH:mm 展示
 function hhmm(t) { return t ? String(t).slice(0, 5) : '' }
+
+// 取消按钮的展示条件（与后端校验保持一致）：
+//  - 待审核：可随时撤回（包括已过期的僵尸申请）
+//  - 已通过：只能在预约开始前取消，已开始/已结束则不再提供按钮
+function canCancel(row) {
+  if (row.status === 'PENDING') return true
+  if (row.status !== 'APPROVED') return false
+  const startAt = new Date(`${String(row.reserveDate).slice(0, 10)}T${hhmm(row.startTime)}:00`)
+  return !Number.isNaN(startAt.getTime()) && Date.now() < startAt.getTime()
+}
 
 async function load() {
   loading.value = true

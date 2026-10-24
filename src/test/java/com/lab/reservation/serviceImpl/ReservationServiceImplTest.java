@@ -361,6 +361,61 @@ class ReservationServiceImplTest {
         }
     }
 
+    // ==================== 取消规则 ====================
+
+    @Nested
+    @DisplayName("取消规则")
+    class CancelRules {
+
+        @Test
+        @DisplayName("已通过的预约一旦开始（日期已过）不允许取消")
+        void cannotCancelStartedApproved() {
+            LabReservation past = pendingReservation(STUDENT_ID);
+            past.setStatus(ReservationStatus.APPROVED.name());
+            past.setReserveDate(LocalDate.now().minusDays(1));
+            when(reservationMapper.lockReservationRow(1L)).thenReturn(1L);
+            when(reservationMapper.selectById(1L)).thenReturn(past);
+
+            BusinessException e = assertThrows(BusinessException.class,
+                    () -> reservationService.cancel(1L, "临时有事"));
+
+            assertEquals(ResultCode.RESERVATION_STATUS_ERROR.getCode(), e.getCode());
+            assertTrue(e.getMessage().contains("无法取消"));
+            // 状态不能被改写，签到凭证也不能被联动取消
+            assertEquals(ReservationStatus.APPROVED.name(), past.getStatus());
+            verify(reservationMapper, never()).updateById(any(LabReservation.class));
+            verify(checkinService, never()).cancelByReservation(any(), any());
+        }
+
+        @Test
+        @DisplayName("已通过但尚未开始的预约可以取消")
+        void canCancelNotStartedApproved() {
+            LabReservation future = pendingReservation(STUDENT_ID);
+            future.setStatus(ReservationStatus.APPROVED.name());
+            when(reservationMapper.lockReservationRow(1L)).thenReturn(1L);
+            when(reservationMapper.selectById(1L)).thenReturn(future);
+
+            reservationService.cancel(1L, "临时有事");
+
+            assertEquals(ReservationStatus.CANCELLED.name(), future.getStatus());
+            assertEquals("临时有事", future.getCancelReason());
+            verify(checkinService).cancelByReservation(1L, "临时有事");
+        }
+
+        @Test
+        @DisplayName("待审核的预约即使日期已过仍可撤回")
+        void pendingCanAlwaysBeWithdrawn() {
+            LabReservation stale = pendingReservation(STUDENT_ID);
+            stale.setReserveDate(LocalDate.now().minusDays(1));
+            when(reservationMapper.lockReservationRow(1L)).thenReturn(1L);
+            when(reservationMapper.selectById(1L)).thenReturn(stale);
+
+            reservationService.cancel(1L, "时间已过，撤回");
+
+            assertEquals(ReservationStatus.CANCELLED.name(), stale.getStatus());
+        }
+    }
+
     // ==================== 测试数据构造 ====================
 
     private LoginUser loginUser(Long id, String realName, String roleCode) {
