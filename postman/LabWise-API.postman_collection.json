@@ -1,0 +1,1753 @@
+{
+  "info": {
+    "name": "LabWise 智慧实验室预约系统 API 测试",
+    "description": "覆盖 LabWise 预约系统主要接口：认证、个人中心、驾驶舱统计、实验室与时段、设备、预约、签到、报修、消息、系统管理，并包含权限与 CORS 安全回归。\n\n运行前置：后端可访问（默认 http://100.96.0.100:8091/api，仅 tailnet 内网可达 → 需 Postman Desktop Agent 或本机 newman 运行）。\n默认账号：admin/123456（可在环境变量 adminUser / adminPass 修改）。\n「12 业务写操作」会真实写入预约、报修、临时账号数据（随后自动取消/删除），默认不自动执行。",
+    "schema": "https://schema.postman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// 兜底默认值：未配置环境变量也能直接运行",
+          "pm.collectionVariables.set('baseUrl', pm.collectionVariables.get('baseUrl') || 'http://100.96.0.100:8091/api');",
+          "pm.collectionVariables.set('adminUser', pm.collectionVariables.get('adminUser') || 'admin');",
+          "pm.collectionVariables.set('adminPass', pm.collectionVariables.get('adminPass') || '123456');",
+          "// 明天日期（可预约时段查询用）",
+          "const d = new Date(Date.now() + 86400000);",
+          "const pad = (n) => String(n).padStart(2, '0');",
+          "pm.collectionVariables.set('tomorrow', `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`);"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "01 认证",
+      "item": [
+        {
+          "name": "1.1 管理员密码登录",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{adminUser}}\",\n  \"password\": \"{{adminPass}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));",
+                  "pm.test('返回 JWT 令牌', () => pm.expect(json.data.token).to.be.a('string').and.not.empty);",
+                  "pm.collectionVariables.set('token', json.data.token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1.2 当前登录用户信息",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/auth/info"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));",
+                  "pm.test('账号一致', () => pm.expect(json.data.username).to.eql(pm.collectionVariables.get('adminUser')));",
+                  "pm.test('携带权限码', () => pm.expect(json.data.permissions).to.be.an('array').that.is.not.empty);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1.3 获取登录验证码",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/auth/captcha",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"scene\": \"LOGIN\",\n  \"account\": \"admin\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));",
+                  "pm.test('有效期 300 秒', () => pm.expect(json.data.expireSeconds).to.eql(300));"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "登录后由脚本把 JWT 写入集合变量 token，集合级 Bearer 鉴权会自动带上。"
+    },
+    {
+      "name": "02 个人中心",
+      "item": [
+        {
+          "name": "2.1 我的资料",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/profile"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));",
+                  "pm.test('含账号字段', () => pm.expect(json.data).to.have.property('username'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2.2 我的数据统计",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/profile/stats"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03 数据驾驶舱",
+      "item": [
+        {
+          "name": "3.1 统计概览",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/stats/overview"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));",
+                  "pm.test('八项指标齐全', () => pm.expect(json.data).to.include.keys(['labTotal','deviceTotal','userTotal','reservationTotal','todayReservation','pendingApproval','pendingRepair','faultDevice']));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3.2 热门实验室 TOP5",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/stats/hot-labs?topN=5"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));",
+                  "pm.test('最多 5 条', () => pm.expect(json.data.length).to.be.at.most(5));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3.3 预约状态分布",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/stats/reservation-status"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3.4 近 7 日预约趋势",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/stats/reservation-trend?days=7"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));",
+                  "pm.test('返回 7 个点', () => pm.expect(json.data.length).to.eql(7));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3.5 实验室类型分布",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/stats/lab-type"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3.6 实时占用看板",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/stats/realtime-board"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3.7 看板汇总",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/stats/board-summary"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "驾驶舱 7 个图表接口；概览与看板走 Redis 缓存，写操作后应自动失效。"
+    },
+    {
+      "name": "04 实验室与开放时段",
+      "item": [
+        {
+          "name": "4.1 实验室精简列表",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/lab/list"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));",
+                  "pm.test('至少一个实验室', () => pm.expect(json.data.length).to.be.above(0));",
+                  "pm.collectionVariables.set('labId', String(json.data[0].id));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4.2 实验室分页",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/lab/page?current=1&size=10"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4.3 实验室详情",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/lab/{{labId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4.4 某实验室全部开放时段",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/lab/slot/{{labId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));",
+                  "pm.test('时段为数组', () => pm.expect(json.data).to.be.an('array'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4.5 明日可预约时段",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/lab/slot/available/{{labId}}?date={{tomorrow}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));",
+                  "pm.test('返回数组', () => pm.expect(json.data).to.be.an('array'));",
+                  "if (json.data.length) {",
+                  "  pm.collectionVariables.set('slotStart', json.data[0].startTime);",
+                  "  pm.collectionVariables.set('slotEnd', json.data[0].endTime);",
+                  "  pm.test('时段含起止时间', () => pm.expect(json.data[0]).to.have.property('startTime'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "05 设备台账",
+      "item": [
+        {
+          "name": "5.1 设备分页",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/device/page?current=1&size=10"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));",
+                  "pm.test('含分页字段', () => pm.expect(json.data).to.have.property('total'));",
+                  "if (json.data.records.length) {",
+                  "  pm.collectionVariables.set('deviceId', String(json.data.records[0].id));",
+                  "  pm.test('设备含数量字段', () => pm.expect(json.data.records[0]).to.have.property('quantity'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5.2 设备详情",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/device/{{deviceId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "设备台账按「同型号同配置多台」建模，数量字段 quantity 参与统计汇总。"
+    },
+    {
+      "name": "06 预约",
+      "item": [
+        {
+          "name": "6.1 我的预约",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/reservation/mine?current=1&size=10"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));",
+                  "pm.test('返回分页结构', () => pm.expect(json.data).to.have.property('records'));",
+                  "if (json.data.records.length) {",
+                  "  pm.collectionVariables.set('myReservationId', String(json.data.records[0].id));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6.2 预约管理端分页",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/reservation/page?current=1&size=10"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));",
+                  "if (json.data.records.length) {",
+                  "  pm.collectionVariables.set('reservationId', String(json.data.records[0].id));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6.3 预约详情",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/reservation/{{reservationId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));",
+                  "pm.test('状态为合法枚举', () => pm.expect(json.data.status).to.be.oneOf(['PENDING','APPROVED','REJECTED','COMPLETED','CANCELLED']));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6.4 预约 Excel 导出",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/reservation/export"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('返回 xlsx 文件流', () => pm.expect(pm.response.headers.get('Content-Type') || '').to.include('spreadsheetml'));"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "提交/取消/审批属于写操作，见「12 业务写操作」。"
+    },
+    {
+      "name": "07 签到",
+      "item": [
+        {
+          "name": "7.1 我的签到",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/checkin/mine?current=1&size=10"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));",
+                  "if (json.data.records.length) {",
+                  "  pm.collectionVariables.set('checkinId', String(json.data.records[0].id));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7.2 签到记录分页（管理端）",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/checkin/page?current=1&size=10"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));",
+                  "if (json.data.records.length) {",
+                  "  pm.collectionVariables.set('checkinId', String(json.data.records[0].id));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7.3 签到单详情",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/checkin/{{checkinId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "08 报修闭环",
+      "item": [
+        {
+          "name": "8.1 报修可选设备清单",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/repair/device-options"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));",
+                  "pm.test('返回数组', () => pm.expect(json.data).to.be.an('array'));",
+                  "if (json.data.length) {",
+                  "  pm.collectionVariables.set('repairDeviceId', String(json.data[0].id));",
+                  "  pm.test('不返回资产价格字段', () => pm.expect(json.data[0]).to.not.have.property('price'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "8.2 报修工单分页",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/repair/page?current=1&size=10"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));",
+                  "if (json.data.records.length) {",
+                  "  pm.collectionVariables.set('repairId', String(json.data.records[0].id));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "8.3 我提交的报修",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/repair/mine?current=1&size=10"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "8.4 报修单详情",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/repair/{{repairId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));",
+                  "pm.test('状态为合法枚举', () => pm.expect(json.data.status).to.be.oneOf(['PENDING','REPAIRING','COMPLETED','CANCELLED']));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "09 消息中心",
+      "item": [
+        {
+          "name": "9.1 我的消息",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/notice/mine?current=1&size=10"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));",
+                  "if (json.data.records.length) {",
+                  "  pm.collectionVariables.set('noticeId', String(json.data.records[0].id));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "9.2 未读数",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/notice/unread-count"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));",
+                  "pm.test('未读数为数字', () => pm.expect(json.data).to.be.a('number'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "9.3 全部消息分页（管理端）",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/notice/page?current=1&size=10"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "9.4 标记单条已读",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/notice/{{noticeId}}/read"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));"
+                ]
+              }
+            }
+          ],
+          "description": "写操作：只影响当前账号自身的已读状态，可安全执行。"
+        }
+      ]
+    },
+    {
+      "name": "10 系统管理",
+      "item": [
+        {
+          "name": "10.1 用户分页",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/user/page?current=1&size=10"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));",
+                  "if (json.data.records.length) {",
+                  "  pm.test('不返回密码字段', () => pm.expect(json.data.records[0]).to.not.have.property('password'));",
+                  "  pm.test('角色已装配', () => pm.expect(json.data.records[0]).to.have.property('roleNames'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "10.2 用户下拉选项",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/user/options"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));",
+                  "if (json.data.length) {",
+                  "  pm.test('仅返回精简字段', () => {",
+                  "    const keys = Object.keys(json.data[0]);",
+                  "    pm.expect(keys).to.include('id');",
+                  "    pm.expect(keys).to.not.include('password');",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "10.3 角色列表",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/role/list"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));",
+                  "if (json.data.length) {",
+                  "  pm.collectionVariables.set('studentRoleId', String((json.data.find(r => r.roleCode === 'STUDENT') || json.data[0]).id));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "10.4 权限树",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/permission/tree"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "10.5 操作日志分页",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/oper-log/page?current=1&size=10"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "11 安全与权限校验",
+      "item": [
+        {
+          "name": "11.1 未带令牌访问用户管理（应 401）",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/user/page?current=1&size=10",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 401', () => pm.response.to.have.status(401));",
+                  "pm.test('业务码 40100', () => pm.expect(pm.response.json().code).to.eql(40100));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11.2 伪造 JWT 访问（应 401）",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/auth/info",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{forgedToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('forgedToken', 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.forged-signature');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11.3 CORS 预检：恶意来源应被拒绝",
+          "request": {
+            "method": "OPTIONS",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Origin",
+                "value": "https://evil.example.com"
+              },
+              {
+                "key": "Access-Control-Request-Method",
+                "value": "POST"
+              }
+            ],
+            "url": "{{baseUrl}}/auth/login",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('不回显 Access-Control-Allow-Origin', () => pm.expect(pm.response.headers.has('Access-Control-Allow-Origin')).to.be.false);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11.4 CORS 预检：白名单来源应放行",
+          "request": {
+            "method": "OPTIONS",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Origin",
+                "value": "http://100.96.0.100:8092"
+              },
+              {
+                "key": "Access-Control-Request-Method",
+                "value": "POST"
+              }
+            ],
+            "url": "{{baseUrl}}/auth/login",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('回显白名单来源', () => pm.expect(pm.response.headers.get('Access-Control-Allow-Origin')).to.eql('http://100.96.0.100:8092'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11.5 Swagger 文档不泄露接口清单",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/v3/api-docs/default"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('未返回可用的 OpenAPI 文档', () => {",
+                  "  const body = pm.response.text();",
+                  "  pm.expect(body).to.not.include('\"openapi\"');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "安全回归：未认证、伪造令牌、CORS 白名单、文档泄露。"
+    },
+    {
+      "name": "12 业务写操作（会写入数据，手动运行）",
+      "item": [
+        {
+          "name": "12.0 角色列表（取学生角色）",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/role/list"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));",
+                  "pm.test('存在角色', () => pm.expect(json.data.length).to.be.above(0));",
+                  "pm.collectionVariables.set('studentRoleId', String((json.data.find(r => r.roleCode === 'STUDENT') || json.data[0]).id));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "12.1 明日可预约时段",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/lab/slot/available/{{labId}}?date={{tomorrow}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));",
+                  "if (json.data.length) {",
+                  "  pm.collectionVariables.set('slotStart', json.data[0].startTime);",
+                  "  pm.collectionVariables.set('slotEnd', json.data[0].endTime);",
+                  "} else {",
+                  "  pm.test('该实验室明日无可预约时段（如需测试提交预约请换实验室）', () => pm.expect(true).to.be.true);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "12.2 提交预约",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/reservation/submit",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"labId\": \"{{labId}}\",\n  \"reserveDate\": \"{{tomorrow}}\",\n  \"startTime\": \"{{slotStart}}\",\n  \"endTime\": \"{{slotEnd}}\",\n  \"peopleCount\": 1,\n  \"purpose\": \"Postman 自动化测试（会自动取消）\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));",
+                  "pm.test('状态为待审核', () => pm.expect(json.data.status).to.eql('PENDING'));",
+                  "pm.collectionVariables.set('newReservationId', String(json.data.id));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "12.3 取消刚提交的预约",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/reservation/{{newReservationId}}/cancel?reason=Postman%20测试后清理"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));"
+                ]
+              }
+            }
+          ],
+          "description": "结束后自清理，不会留下进行中的预约。"
+        },
+        {
+          "name": "12.4 提交报修",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/repair",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"deviceId\": \"{{repairDeviceId}}\",\n  \"faultDesc\": \"Postman 自动化测试（会自动取消）\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));",
+                  "pm.test('状态为待处理', () => pm.expect(json.data.status).to.eql('PENDING'));",
+                  "pm.collectionVariables.set('newRepairId', String(json.data.id));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "12.5 取消报修",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/repair/{{newRepairId}}/cancel?remark=Postman%20测试后清理"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));",
+                  "pm.test('状态为已取消', () => pm.expect(json.data.status).to.eql('CANCELLED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "12.6 创建临时低权限账号",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/user",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{probeUser}}\",\n  \"password\": \"{{probePass}}\",\n  \"realName\": \"Postman 临时账号\",\n  \"status\": 1,\n  \"roleIds\": [\n    \"{{studentRoleId}}\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('probeUser', 'pm_probe_' + Date.now());",
+                  "pm.collectionVariables.set('probePass', 'Probe@123456');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "12.7 查询临时账号 ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/user/page?current=1&size=10&keyword={{probeUser}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));",
+                  "pm.test('按账号精确命中', () => pm.expect(json.data.records.length).to.eql(1));",
+                  "pm.collectionVariables.set('probeUserId', String(json.data.records[0].id));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "12.8 临时账号登录",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/auth/login",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{probeUser}}\",\n  \"password\": \"{{probePass}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));",
+                  "pm.collectionVariables.set('probeToken', json.data.token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "12.9 低权限账号访问用户管理（应 40300）",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/user/page?current=1&size=10",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{probeToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// 本项目权限拒绝统一为 HTTP 200 + 业务码 40300，不能只看 HTTP 状态码",
+                  "pm.test('业务码 40300 无权限', () => pm.expect(pm.response.json().code).to.eql(40300));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "12.10 删除临时账号",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/user/{{probeUserId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));"
+                ]
+              }
+            }
+          ],
+          "description": "清理 12.6 创建的临时账号，避免留下垃圾数据。"
+        }
+      ],
+      "description": "会产生预约/报修/临时账号数据（随后自动取消与删除），默认不自动执行。"
+    }
+  ]
+}

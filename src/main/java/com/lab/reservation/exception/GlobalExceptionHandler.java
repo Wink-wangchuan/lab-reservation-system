@@ -12,6 +12,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
@@ -59,6 +60,18 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(MissingServletRequestParameterException.class)
     public Result<Void> handleMissingParam(MissingServletRequestParameterException e) {
         return Result.error(ResultCode.PARAM_ERROR, "缺少参数：" + e.getParameterName());
+    }
+
+    /**
+     * 路径变量 / 查询参数类型不匹配（如 /api/checkin/undefined 这类非法 ID）
+     *
+     * <p>属于调用方参数错误，必须返回 40000 而不是兜底成 50050 系统异常，
+     * 同时避免把类型转换细节暴露给前端。</p>
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public Result<Void> handleTypeMismatch(MethodArgumentTypeMismatchException e) {
+        log.warn("[参数类型错误] name={}, value={}", e.getName(), e.getValue());
+        return Result.error(ResultCode.PARAM_ERROR, "参数格式不正确：" + e.getName());
     }
 
     /**
