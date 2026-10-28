@@ -33,6 +33,7 @@ import com.lab.reservation.mapper.LabTimeSlotMapper;
 import com.lab.reservation.mapper.SysNoticeMapper;
 import com.lab.reservation.mapper.SysRoleMapper;
 import com.lab.reservation.mapper.SysUserMapper;
+import com.lab.reservation.service.AiActionService;
 import com.lab.reservation.service.AiAssistantService;
 import com.lab.reservation.service.StatisticsService;
 import com.lab.reservation.security.SecurityUtil;
@@ -109,6 +110,7 @@ public class AiAssistantServiceImpl implements AiAssistantService {
     private final LabInfoMapper labInfoMapper;
     private final LabTimeSlotMapper slotMapper;
     private final SysNoticeMapper noticeMapper;
+    private final AiActionService aiActionService;
 
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
@@ -178,6 +180,14 @@ public class AiAssistantServiceImpl implements AiAssistantService {
             throw new BusinessException(ResultCode.AI_BUSY);
         }
         try {
+            // 3. 代办指令优先：识别到「帮我预约/帮我审批」这类祈使句时直接执行业务动作，
+            //    不再调用上游模型（结果确定、省 token，且权限/冲突校验仍由原服务把关）
+            AiActionService.Result action = aiActionService.handle(question);
+            if (action.matched()) {
+                streamText(action.report(), onDelta);
+                appendHistory(userId, question, action.report());
+                return action.report();
+            }
             List<AiMessageVO> history = readHistory(userId);
             JSONArray messages = buildMessages(userId, question, history);
             String answer = callUpstream(messages, onDelta);
@@ -185,6 +195,26 @@ public class AiAssistantServiceImpl implements AiAssistantService {
             return answer;
         } finally {
             stringRedisTemplate.delete(busyKey);
+        }
+    }
+
+    /**
+     * 把确定性文本按打字机节奏推给前端（代办结果不是模型流，需自行分块）
+     */
+    private void streamText(String text, Consumer<String> onDelta) {
+        if (StrUtil.isBlank(text) || onDelta == null) {
+            return;
+        }
+        int chunkSize = 28;
+        for (int i = 0; i < text.length(); i += chunkSize) {
+            String chunk = text.substring(i, Math.min(i + chunkSize, text.length()));
+            onDelta.accept(chunk);
+            try {
+                Thread.sleep(20);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
         }
     }
 

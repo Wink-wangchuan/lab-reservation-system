@@ -17,6 +17,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -77,6 +80,9 @@ public class AiAssistantController {
         // 请求线程内取好当前用户：异步线程里拿不到 SecurityContext
         Long userId = SecurityUtil.getUserId();
         String question = dto.getMessage().trim();
+        // AI 代办会调用 ReservationService 等业务服务，这些服务内部同样依赖 SecurityContext，
+        // 因此需要把认证信息显式带到异步线程（SecurityContextHolder 默认是 ThreadLocal，不跨线程）
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
 
         // 打字机效果：Tomcat 响应缓冲默认 8KB，逐段增量会被攒批后一次性蹦出，故调至最小
         response.setBufferSize(1);
@@ -86,6 +92,9 @@ public class AiAssistantController {
         emitter.onError(e -> emitter.complete());
 
         aiExecutor.execute(() -> {
+            SecurityContext context = SecurityContextHolder.createEmptyContext();
+            context.setAuthentication(authentication);
+            SecurityContextHolder.setContext(context);
             try {
                 aiAssistantService.streamChat(userId, question, delta -> sendDelta(emitter, delta));
                 sendQuietly(emitter, "done", "");
@@ -100,6 +109,8 @@ public class AiAssistantController {
                 log.error("[AI] 流式对话异常", e);
                 sendQuietly(emitter, "error", ResultCode.AI_UPSTREAM_ERROR.getMessage());
                 emitter.complete();
+            } finally {
+                SecurityContextHolder.clearContext();
             }
         });
         return emitter;
