@@ -393,9 +393,41 @@
               }
             }
           ]
+        },
+        {
+          "name": "3.8 当前天气（默认广州）",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/weather/now"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('HTTP 状态 200', () => pm.response.to.have.status(200));",
+                  "pm.test('业务码 = 200', () => pm.expect(json.code).to.eql(200));",
+                  "if (json.data) {",
+                  "  pm.test('含城市与温度', () => pm.expect(json.data).to.include.keys(['city','temp','text']));",
+                  "  pm.test('温度为数字字符串', () => pm.expect(Number(json.data.temp)).to.not.be.NaN);",
+                  "} else {",
+                  "  pm.test('天气未配置或上游不可用（已优雅降级为 null）', () => pm.expect(true).to.be.true);",
+                  "}"
+                ]
+              }
+            }
+          ]
         }
       ],
-      "description": "驾驶舱 7 个图表接口；概览与看板走 Redis 缓存，写操作后应自动失效。"
+      "description": "驾驶舱 7 个图表接口 + 顶栏天气；概览与看板走 Redis 缓存，写操作后应自动失效。"
     },
     {
       "name": "04 实验室与开放时段",

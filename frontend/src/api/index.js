@@ -9,6 +9,9 @@ export const resetPassword = (data) => request.post('/auth/reset-password', data
 export const logout = () => request.post('/auth/logout')
 export const getInfo = () => request.get('/auth/info')
 
+// 天气（和风天气由后端代理，前端只拿结果）
+export const weatherNow = (params) => request.get('/weather/now', { params })
+
 // 用户
 export const userPage = (params) => request.get('/user/page', { params })
 export const userDetail = (id) => request.get(`/user/${id}`)

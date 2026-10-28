@@ -289,6 +289,8 @@ npm run build     # 产物在 frontend/dist
 | `AI_TIMEOUT` | `60` | 上游空闲超时（秒） |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:8081,http://localhost:5173` | 跨域来源白名单（逗号分隔，**禁止填 `*`**） |
 | `CAPTCHA_EXPOSE_CODE` | `false` | 是否在验证码接口回传验证码本身；仅无短信通道的演示环境可临时开启 |
+| `QWEATHER_HOST` | `https://na5u9xkk3k.re.qweatherapi.com` | 和风天气 API Host（顶栏天气） |
+| `QWEATHER_KEY` | 空 | 和风天气 API Key（**仅服务端注入**，缺失时顶栏天气自动隐藏） |
 
 > 验证码即登录凭证，`CAPTCHA_EXPOSE_CODE=true` 时任何知道账号的人都能匿名取码登录，
 > 生产环境接入短信通道后**必须保持 `false`**。

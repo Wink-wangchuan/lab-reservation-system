@@ -23,6 +23,13 @@
           <span class="clock-time">{{ clockTime }}</span>
         </div>
 
+        <!-- 当前天气（默认广州，取到定位则按实际位置） -->
+        <div v-if="weather" class="weather" :title="weatherTip">
+          <el-icon :size="17"><component :is="weatherIcon" /></el-icon>
+          <span class="weather-temp">{{ weather.temp }}°</span>
+          <span class="weather-city">{{ weather.city || '广州' }}</span>
+        </div>
+
         <!-- 主题切换 -->
         <button class="icon-btn" type="button" :title="isDark ? '切换到浅色' : '切换到深色'" @click="toggleTheme">
           <el-icon :size="18"><component :is="isDark ? 'Sunny' : 'Moon'" /></el-icon>
@@ -104,7 +111,7 @@ import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { useTheme } from '@/utils/theme'
-import { noticeMine, noticeUnreadCount } from '@/api'
+import { noticeMine, noticeUnreadCount, weatherNow } from '@/api'
 import SideMenu from './SideMenu.vue'
 
 const route = useRoute()
@@ -130,6 +137,65 @@ const clockTime = computed(() => {
   const d = now.value
   return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`
 })
+
+// —— 顶栏天气 ——
+// 定位优先用浏览器坐标；拿不到（拒绝授权 / 非 HTTPS 源）就让后端回退默认位置广州。
+// 天气每 30 分钟刷新一次，后端对实况做了 10 分钟缓存，不会过度消耗接口配额。
+const weather = ref(null)
+let weatherTimer = null
+let lastCoords = null
+
+const weatherTip = computed(() => {
+  const w = weather.value
+  if (!w) return ''
+  const parts = [w.text, `体感 ${w.feelsLike}°`, `湿度 ${w.humidity}%`]
+  if (w.windDir) parts.push(`${w.windDir}${w.windScale}级`)
+  return parts.filter(Boolean).join(' · ')
+})
+
+// 和风天气图标编码 → Element Plus 图标（图标库无雪天图标，雪与雾霾统一用 Cloudy）
+function weatherIconOf(code) {
+  const n = Number(code) || 0
+  if (n === 100) return 'Sunny'
+  if (n >= 150 && n <= 153) return 'MoonNight'
+  if (n === 104 || (n >= 500 && n <= 515)) return 'Cloudy'
+  if (n >= 101 && n <= 103) return 'PartlyCloudy'
+  if (n === 302 || (n >= 303 && n <= 312)) return 'Lightning'
+  if (n >= 300 && n <= 301) return 'Drizzling'
+  if (n >= 313 && n <= 399) return 'Pouring'
+  if (n >= 400 && n <= 499) return 'Cloudy'
+  if (n >= 900) return 'WindPower'
+  return 'Sunny'
+}
+const weatherIcon = computed(() => weatherIconOf(weather.value?.icon))
+
+async function loadWeather(lat, lon) {
+  try {
+    const data = await weatherNow(lat == null || lon == null ? undefined : { lat, lon })
+    weather.value = data || null
+  } catch {
+    // 天气属于弱功能：失败时保持静默，不打扰用户
+  }
+}
+
+function refreshWeather() {
+  if (lastCoords) {
+    loadWeather(lastCoords.lat, lastCoords.lon)
+    return
+  }
+  if (!navigator.geolocation) {
+    loadWeather()
+    return
+  }
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      lastCoords = { lat: pos.coords.latitude, lon: pos.coords.longitude }
+      loadWeather(lastCoords.lat, lastCoords.lon)
+    },
+    () => loadWeather(), // 拒绝授权或超时 → 默认广州
+    { timeout: 5000, maximumAge: 10 * 60 * 1000, enableHighAccuracy: false }
+  )
+}
 
 // 中屏（769-1024px）折叠为图标导航；窄屏隐藏侧栏走抽屉
 const winW = ref(window.innerWidth)
@@ -324,12 +390,16 @@ onMounted(() => {
   window.addEventListener('pointerdown', askNotifyPermission, { once: true })
   // 顶栏时钟每秒刷新
   clockTimer = setInterval(() => { now.value = new Date() }, 1000)
+  // 天气：进入应用先取一次，之后每 30 分钟刷新
+  refreshWeather()
+  weatherTimer = setInterval(refreshWeather, 30 * 60 * 1000)
   window.addEventListener('resize', trackWidth)
 })
 
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer)
   if (clockTimer) clearInterval(clockTimer)
+  if (weatherTimer) clearInterval(weatherTimer)
   window.removeEventListener('resize', trackWidth)
 })
 </script>
@@ -434,6 +504,30 @@ onBeforeUnmount(() => {
     // 等宽数字：秒数跳动时宽度不抖动
     font-variant-numeric: tabular-nums;
     letter-spacing: 0.3px;
+  }
+}
+
+// 天气胶囊：与时钟并排，弱强调，不抢视觉重心
+.weather {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(91, 140, 255, 0.08);
+  color: var(--ink-2);
+  white-space: nowrap;
+  cursor: default;
+
+  .weather-temp {
+    font-size: 13px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .weather-city {
+    font-size: 11px;
+    color: var(--ink-3);
   }
 }
 
@@ -584,8 +678,12 @@ onBeforeUnmount(() => {
     display: flex;
   }
 
-  // 窄屏顶栏空间紧张，隐藏日期时间
+  // 窄屏顶栏空间紧张，隐藏日期时间与天气
   .clock {
+    display: none;
+  }
+
+  .weather {
     display: none;
   }
 

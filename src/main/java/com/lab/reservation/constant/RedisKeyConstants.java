@@ -123,6 +123,14 @@ public final class RedisKeyConstants {
     /** 登录失败计数（防暴力破解）：login:fail:{username} */
     public static final String LOGIN_FAIL = "login:fail:{}";
 
+    /** 天气实况缓存（按经纬度，10 分钟）：weather:now:{lon},{lat} */
+    public static final String WEATHER_NOW = "weather:now:{}";
+
+    /** 组装天气实况缓存键 */
+    public static String weatherKey(String location) {
+        return StrUtil.format(WEATHER_NOW, location);
+    }
+
     /** 组装登录失败计数键 */
     public static String loginFailKey(String username) {
         return StrUtil.format(LOGIN_FAIL, username);
