@@ -56,6 +56,15 @@ public class SecurityConfig {
     private String allowedOrigins;
 
     /**
+     * 接口文档是否开启（生产默认关闭）
+     *
+     * <p>关闭时不仅停止生成 OpenAPI 文档，也不再对匿名放行 /doc.html 等页面，
+     * 避免攻击者从文档页与 webjars 里收集框架/接口信息。</p>
+     */
+    @Value("${springdoc.api-docs.enabled:true}")
+    private boolean apiDocsEnabled;
+
+    /**
      * 密码加密器（BCrypt）
      */
     @Bean
@@ -76,34 +85,38 @@ public class SecurityConfig {
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint(authenticationEntryPoint)
                         .accessDeniedHandler(accessDeniedHandler))
-                .authorizeHttpRequests(auth -> auth
-                        // 异步派发放行（SSE / DeferredResult 必需）：
-                        // 流式请求结束时容器会做一次 ASYNC 二次派发，此次派发同样会经过安全过滤器链，
-                        // 但 SecurityContext 已随原请求线程结束而清空，若不放行会被 AuthorizationFilter
-                        // 判为匿名访问而拒绝，表现为响应已提交却抛出 Access Denied，
-                        // 浏览器侧看到 net::ERR_INCOMPLETE_CHUNKED_ENCODING。
-                        // 原请求在首次派发时已通过认证与 @PreAuthorize 校验，此处放行不会绕过鉴权。
-                        .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
-                        // 白名单：接口文档、匿名认证入口、放行 OPTIONS 预检
-                        // 注意：这里必须逐条列出，不可写成 /api/auth/**，
-                        // 否则 /api/auth/info、/api/auth/logout 会从 401 变成 403，
-                        // 破坏前端「401 → 清除令牌跳登录」的处理链路
-                        .requestMatchers(
+                .authorizeHttpRequests(auth -> {
+                    // 异步派发放行（SSE / DeferredResult 必需）：
+                    // 流式请求结束时容器会做一次 ASYNC 二次派发，此次派发同样会经过安全过滤器链，
+                    // 但 SecurityContext 已随原请求线程结束而清空，若不放行会被 AuthorizationFilter
+                    // 判为匿名访问而拒绝，表现为响应已提交却抛出 Access Denied，
+                    // 浏览器侧看到 net::ERR_INCOMPLETE_CHUNKED_ENCODING。
+                    // 原请求在首次派发时已通过认证与 @PreAuthorize 校验，此处放行不会绕过鉴权。
+                    auth.dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll();
+                    // 匿名认证入口（逐条列出，不可写成 /api/auth/**，
+                    // 否则 /api/auth/info、/api/auth/logout 会从 401 变成 403，
+                    // 破坏前端「401 → 清除令牌跳登录」的处理链路）
+                    auth.requestMatchers(
+                            "/favicon.ico",
+                            "/error",
+                            "/api/auth/login",
+                            "/api/auth/captcha",
+                            "/api/auth/login-by-code",
+                            "/api/auth/register",
+                            "/api/auth/reset-password"
+                    ).permitAll();
+                    // 接口文档仅在开启时放行；生产关闭后匿名访问直接 401
+                    if (apiDocsEnabled) {
+                        auth.requestMatchers(
                                 "/doc.html",
                                 "/webjars/**",
                                 "/v3/api-docs/**",
                                 "/swagger-resources/**",
-                                "/swagger-ui/**",
-                                "/favicon.ico",
-                                "/error",
-                                "/api/auth/login",
-                                "/api/auth/captcha",
-                                "/api/auth/login-by-code",
-                                "/api/auth/register",
-                                "/api/auth/reset-password"
-                        ).permitAll()
-                        // 其余请求全部需要认证
-                        .anyRequest().authenticated())
+                                "/swagger-ui/**"
+                        ).permitAll();
+                    }
+                    auth.anyRequest().authenticated();
+                })
                 // JWT 过滤器置于用户名密码过滤器之前
                 .addFilterBefore(jwtAuthenticationFilter,
                         UsernamePasswordAuthenticationFilter.class);

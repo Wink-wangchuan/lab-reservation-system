@@ -1,0 +1,6 @@
+[Unit]
+Description=LabWise 数据库逻辑备份（PyMySQL，无需 mysqldump）
+
+[Service]
+Type=oneshot
+ExecStart=%h/opt/backup-venv/bin/python %h/lab-reservation/deploy/backup_db.py

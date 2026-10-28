@@ -102,7 +102,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { labPage, labAdd, labEdit, labDelete, labOpen, labReserve, labList, userOptions } from '@/api'
+import { labPage, labAdd, labEdit, labDelete, labOpen, labReserve, userOptions } from '@/api'
 import { useUserStore } from '@/store/user'
 
 const userStore = useUserStore()

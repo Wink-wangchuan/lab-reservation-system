@@ -242,7 +242,9 @@ mvn test
 
 后端默认监听 `http://localhost:8080`，接口前缀 `/api`。
 
-接口文档（Knife4j）：`http://localhost:8080/doc.html`
+接口文档（Knife4j）：开发环境 `http://localhost:8080/doc.html`。
+**生产环境默认关闭**（`springdoc.api-docs.enabled=false`、`knife4j.enable=false`），
+需要临时查看时在服务器 `.env` 设 `SPRINGDOC_ENABLED=true` / `KNIFE4J_ENABLED=true` 后重启。
 
 ### 4. 启动前端
 
@@ -257,8 +259,11 @@ npm run dev
 生产构建：
 
 ```bash
+npm run lint      # ESLint（Vue essential 规则，0 error 才允许合并）
 npm run build     # 产物在 frontend/dist
 ```
+
+格式化：`npm run format`（Prettier 配置见 `frontend/.prettierrc.json`）。
 
 > 生产环境接口地址由构建期变量 `VITE_API_BASE` 注入，见 `frontend/.env.production`。
 
@@ -547,6 +552,10 @@ npx newman run postman/LabWise-API.postman_collection.json \
 | `lab-backend.service` | 后端 jar，环境变量从 `.env` 注入 |
 | `lab-frontend.service` | 前端静态站，`serve_dist.py` 提供 SPA 回退与缓存头 |
 | `lab-redis.service` | 用户级 Redis 实例 |
+| `lab-logrotate.service` / `.timer` | 每天 03:10 轮转日志（单文件超 20MB 复制截断，保留 7 份） |
+| `lab-db-backup.service` / `.timer` | 每天 03:40 逻辑备份数据库（PyMySQL，保留 7 份） |
+| `rotate_logs.sh` | 日志轮转脚本（无需 root，写进程句柄不中断） |
+| `backup_db.py` | 数据库备份脚本（生成 `DROP + CREATE + INSERT` 的可直接恢复 SQL） |
 | `serve_dist.py` | 静态服务器（入口 HTML 不缓存，`assets/` 强缓存） |
 | `README.md` | 部署细节与各版本升级说明 |
 
@@ -571,6 +580,24 @@ ssh <host> 'mv /tmp/app.jar ~/lab-reservation/app.jar \
 
 敏感配置只写在服务器的 `.env`（权限 600）中，由 systemd `EnvironmentFile` 注入，不进入仓库。
 
+### 运维定时任务
+
+```bash
+# 启用日志轮转与数据库备份（用户级 timer，无需 root）
+systemctl --user enable --now lab-logrotate.timer lab-db-backup.timer
+systemctl --user list-timers | grep lab-
+
+# 手动触发一次备份 / 查看备份
+systemctl --user start lab-db-backup.service
+ls -lh ~/lab-backup/
+
+# 恢复（示例）
+zcat ~/lab-backup/lab_reservation_YYYYmmdd_HHMM.sql.gz | mysql -uroot -p lab_reservation
+```
+
+数据库备份使用 PyMySQL 生成标准 SQL（`DROP TABLE` + `CREATE TABLE` + 批量 `INSERT`），
+不依赖 mysqldump；仅保留最近 7 份，避免磁盘被历史备份占满。
+
 ---
 
 ## 版本里程碑
@@ -589,6 +616,7 @@ ssh <host> 'mv /tmp/app.jar ~/lab-reservation/app.jar \
 | v2.6 | 体验打磨 | AI 回答排版与圆形头像、长邮箱完整折行、预约详情与导出表头的称谓统一 |
 | v2.7 | 安全加固 | CORS 收敛为白名单、验证码回传改为开关、登录失败限流；过期预约自动完成且开始后禁止取消 |
 | v2.8 | 体验与质量 | 顶栏和风天气（后端代理隐藏 Key）、站内消息系统通知推送、报修闭环步骤条自动复位、Postman 接口测试集合 |
+| v2.9 | 安全运维 | 操作日志密码脱敏、生产关闭接口文档、日志轮转与操作日志清理、数据库定时备份、AI 看门狗线程池化、Excel 流式导出、CI 与 ESLint |
 
 各版本的详细改动与踩坑记录见 `deploy/tailnet/README.md`。
 

@@ -25,6 +25,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDateTime;
 import java.util.Arrays;
+import java.util.List;
 
 /**
  * 操作日志切面
@@ -105,7 +106,7 @@ public class OperationLogAspect {
                 operLog.setOperUrl(request.getRequestURI());
                 operLog.setOperIp(JakartaServletUtil.getClientIP(request));
                 operLog.setOperParam(StrUtil.maxLength(
-                        JSONUtil.toJsonStr(cleanArgs(joinPoint.getArgs())), MAX_LEN));
+                        maskSensitive(JSONUtil.toJsonStr(cleanArgs(joinPoint.getArgs()))), MAX_LEN));
             }
 
             // 5. 结果/异常 + 耗时 + 状态
@@ -163,5 +164,35 @@ public class OperationLogAspect {
                         || arg instanceof MultipartFile)
                         && arg != null)
                 .toArray();
+    }
+
+    /**
+     * 敏感字段名（统一小写比较）
+     *
+     * <p>操作日志会把请求参数落库到 {@code sys_oper_log.oper_param}，若不脱敏，
+     * 修改密码、新增用户、重置密码等接口会把<b>明文密码</b>永久写进日志表，
+     * 任何能查看操作日志的人都能读到，属于严重的隐私泄露。</p>
+     */
+    private static final List<String> SENSITIVE_KEYS = List.of(
+            "password", "oldpassword", "newpassword", "confirmpassword",
+            "pwd", "token", "secret", "authorization");
+
+    /**
+     * 对序列化后的 JSON 做敏感字段脱敏：把命中字段的值统一替换为 {@code ******}。
+     *
+     * <p>在序列化之后处理，可以同时覆盖 DTO、Map、嵌套对象等所有形态，
+     * 不必为每种入参单独写脱敏逻辑。</p>
+     */
+    static String maskSensitive(String json) {
+        if (StrUtil.isBlank(json)) {
+            return json;
+        }
+        String masked = json;
+        for (String key : SENSITIVE_KEYS) {
+            masked = masked.replaceAll(
+                    "(?i)(\"" + key + "\"\\s*:\\s*)\"[^\"]*\"",
+                    "$1\"******\"");
+        }
+        return masked;
     }
 }

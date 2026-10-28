@@ -222,13 +222,6 @@ const streaming = ref(false)
 const scrollerRef = ref(null)
 let controller = null
 
-function nowText() {
-  const d = new Date()
-  const p = (n) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} `
-    + `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
-}
-
 function scrollToBottom() {
   nextTick(() => {
     const el = scrollerRef.value

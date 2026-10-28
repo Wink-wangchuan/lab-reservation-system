@@ -60,6 +60,10 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
@@ -107,6 +111,18 @@ public class AiAssistantServiceImpl implements AiAssistantService {
     private final SysNoticeMapper noticeMapper;
 
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+    /**
+     * AI 流看门狗调度器
+     *
+     * <p>单线程守护调度器：所有对话的空闲检测共用它，而不是每次请求新建一个线程。
+     * 看门狗只做「每 500ms 检查一次是否空闲超时」这种极轻量工作，单线程足够。</p>
+     */
+    private static final ScheduledExecutorService AI_WATCHDOG = Executors.newScheduledThreadPool(1, r -> {
+        Thread thread = new Thread(r, "ai-watchdog");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     /** 会话历史缓存时长 */
     private static final Duration HISTORY_TTL = Duration.ofHours(24);
@@ -213,14 +229,11 @@ public class AiAssistantServiceImpl implements AiAssistantService {
                     throw new BusinessException(ResultCode.AI_UPSTREAM_ERROR);
                 }
                 // readLine() 会一直阻塞，循环里没法自检空闲，只能由旁路线程在超时后关闭流，
-                // 让阻塞中的读取抛异常退出（这是「不设 HttpRequest 级 timeout」的配套兜底）
-                Thread watchdog = new Thread(() -> {
-                    while (!Thread.currentThread().isInterrupted()) {
-                        try {
-                            Thread.sleep(500);
-                        } catch (InterruptedException e) {
-                            return;
-                        }
+                // 让阻塞中的读取抛异常退出（这是「不设 HttpRequest 级 timeout」的配套兜底）。
+                // 这里复用共享调度池：每次对话都 new Thread 会让线程数随并发线性增长
+                ScheduledFuture<?> watchdog = AI_WATCHDOG.schedule(new Runnable() {
+                    @Override
+                    public void run() {
                         long now = System.currentTimeMillis();
                         if (now - lastActivity.get() > idleMillis || now - startedAt > totalMillis) {
                             timedOut.set(true);
@@ -229,14 +242,14 @@ public class AiAssistantServiceImpl implements AiAssistantService {
                             try {
                                 in.close();
                             } catch (Exception ignored) {
-                                // 关闭失败也无所谓，线程直接退出
+                                // 关闭失败也无所谓，读取侧会自行异常退出
                             }
                             return;
                         }
+                        // 尚未超时：继续巡检（同一条线程池线程，不新增线程）
+                        AI_WATCHDOG.schedule(this, 500, TimeUnit.MILLISECONDS);
                     }
-                }, "ai-watchdog");
-                watchdog.setDaemon(true);
-                watchdog.start();
+                }, 500, TimeUnit.MILLISECONDS);
                 try {
                     BufferedReader reader = new BufferedReader(
                             new InputStreamReader(in, StandardCharsets.UTF_8));
@@ -252,7 +265,7 @@ public class AiAssistantServiceImpl implements AiAssistantService {
                         onDelta.accept(delta);
                     }
                 } finally {
-                    watchdog.interrupt();
+                    watchdog.cancel(false);
                 }
             }
         } catch (BusinessException | AiStreamAbortedException e) {

@@ -1,0 +1,6 @@
+[Unit]
+Description=LabWise 日志轮转（用户级，无 root 权限）
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash %h/lab-reservation/deploy/rotate_logs.sh

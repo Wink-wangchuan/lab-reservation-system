@@ -46,6 +46,15 @@ mybatis-plus:
   configuration:
     log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
 
+# 生产环境默认关闭接口文档：/doc.html 与 /v3/api-docs 会完整暴露接口清单与参数结构，
+# 属于对外侦察的高价值信息。需要临时查看时在 .env 里设 KNIFE4J_ENABLED=true / SPRINGDOC_ENABLED=true
+springdoc:
+  api-docs:
+    enabled: ${SPRINGDOC_ENABLED:false}
+
+knife4j:
+  enable: ${KNIFE4J_ENABLED:false}
+
 # JWT：密钥从环境变量注入，单元文件权限 600，不落仓库
 jwt:
   secret: ${JWT_SECRET:}

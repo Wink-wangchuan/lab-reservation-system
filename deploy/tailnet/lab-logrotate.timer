@@ -1,0 +1,9 @@
+[Unit]
+Description=每天 03:10 轮转 LabWise 运行日志
+
+[Timer]
+OnCalendar=*-*-* 03:10:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -42,8 +42,8 @@ import org.apache.poi.ss.usermodel.FillPatternType;
 import org.apache.poi.ss.usermodel.Font;
 import org.apache.poi.ss.usermodel.IndexedColors;
 import org.apache.poi.ss.usermodel.Row;
-import org.apache.poi.xssf.usermodel.XSSFSheet;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.xssf.streaming.SXSSFWorkbook;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -96,6 +96,9 @@ public class ReservationServiceImpl implements ReservationService {
             List.of(ReservationStatus.DRAFT.name(),
                     ReservationStatus.CANCELLED.name(),
                     ReservationStatus.REJECTED.name());
+
+    /** 单次 Excel 导出的最大行数：防止一次性把整表读进内存 */
+    private static final int MAX_EXPORT_ROWS = 20_000;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -404,9 +407,17 @@ public class ReservationServiceImpl implements ReservationService {
                         .or().like(LabReservation::getStudentName, keyword)
                         .or().like(LabReservation::getLabName, keyword))
                 .orderByDesc(LabReservation::getCreateTime);
+        // 导出上限：即便改用流式写，一次性 selectList 仍会把全部行读进内存，
+        // 数据量大时容易把 768MB 堆打爆，故先计数拦截并引导用户缩小筛选范围
+        Long total = reservationMapper.selectCount(wrapper);
+        if (total != null && total > MAX_EXPORT_ROWS) {
+            throw new BusinessException(ResultCode.EXPORT_ERROR,
+                    "待导出数据过多（" + total + " 条，上限 " + MAX_EXPORT_ROWS
+                            + " 条），请先用实验室、状态或关键词缩小范围");
+        }
         List<LabReservation> list = reservationMapper.selectList(wrapper);
 
-        try (XSSFWorkbook workbook = buildWorkbook(list)) {
+        try (SXSSFWorkbook workbook = buildWorkbook(list)) {
             response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
             response.setCharacterEncoding("UTF-8");
             String fileName = new String("预约记录导出_".getBytes(StandardCharsets.UTF_8),
@@ -422,11 +433,14 @@ public class ReservationServiceImpl implements ReservationService {
     }
 
     /**
-     * 构建入职预约导出工作簿（带样式表头）
+     * 构建预约导出工作簿（带样式表头）
+     *
+     * <p>使用 SXSSF 流式写入：内存中只保留窗口内若干行，其余刷到磁盘临时文件，
+     * 相比 XSSF 全量驻留内存可显著降低导出时的堆占用。</p>
      */
-    private XSSFWorkbook buildWorkbook(List<LabReservation> list) {
-        XSSFWorkbook workbook = new XSSFWorkbook();
-        XSSFSheet sheet = workbook.createSheet("预约记录");
+    private SXSSFWorkbook buildWorkbook(List<LabReservation> list) {
+        SXSSFWorkbook workbook = new SXSSFWorkbook(200);
+        Sheet sheet = workbook.createSheet("预约记录");
 
         // 样式：表头加粗 + 浅蓝底
         CellStyle headerStyle = workbook.createCellStyle();
@@ -461,9 +475,11 @@ public class ReservationServiceImpl implements ReservationService {
             row.createCell(9).setCellValue(ReservationStatus.of(r.getStatus()).getDesc());
             row.createCell(10).setCellValue(r.getCreateTime().toString());
         }
-        // 自适应列宽
+        // 固定列宽：SXSSF 下 autoSizeColumn 需要缓存全部行才能算宽度，
+        // 会抵消流式写入的优势，故按内容长度预设列宽
+        int[] widths = {22, 20, 12, 12, 12, 10, 10, 8, 28, 10, 20};
         for (int i = 0; i < headers.length; i++) {
-            sheet.autoSizeColumn(i);
+            sheet.setColumnWidth(i, widths[i] * 256);
         }
         return workbook;
     }
