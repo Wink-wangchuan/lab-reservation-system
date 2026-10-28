@@ -23,6 +23,7 @@
 - [数据库设计](#数据库设计)
 - [项目结构](#项目结构)
 - [接口概览](#接口概览)
+- [接口测试](#接口测试)
 - [部署](#部署)
 - [版本里程碑](#版本里程碑)
 
@@ -51,7 +52,7 @@
 | 功能 | 说明 |
 | --- | --- |
 | 预约申请 | 选择实验室、日期、时段、用途与人数，可指定设备；提交即进入待审核 |
-| 我的预约 | 查看本人全部预约与状态，支持取消（含原因） |
+| 我的预约 | 查看本人全部预约与状态，仅在预约开始前可取消（含原因） |
 | 我的签到 | 查看本人核销码、签到记录，支持签退 |
 | 设备报修 | 选择故障设备提交报修，跟踪受理 / 维修 / 完成进度 |
 | 消息中心 | 接收预约、报修、账号三类站内通知，未读红点提醒 |
@@ -89,6 +90,17 @@
 - 会话上下文存 Redis，保留最近 20 条、24 小时过期
 - 内置限流（20 次/分钟）与单用户并发流互斥
 
+### 通用体验
+
+| 功能 | 说明 |
+| --- | --- |
+| 顶栏时钟与天气 | 实时日期时间；右侧显示和风天气实况（自动定位，拒绝授权/无法定位时回落广州） |
+| 消息主动推送 | 新站内消息触发浏览器系统通知，点击直达消息中心；未授权通知权限时退回页内弹窗 |
+| 深色 / 浅色主题 | iOS 风格雾透玻璃质感，主题偏好本地持久化 |
+
+> 天气由后端代理和风天气接口，**API Key 只存在于服务器环境变量**，前端拿不到；
+> 实况按经纬度在 Redis 缓存 10 分钟，刷新页面不会反复消耗接口配额。
+
 ---
 
 ## 技术栈
@@ -104,6 +116,7 @@
 | MyBatis-Plus | 3.5.7 | ORM、分页、逻辑删除、乐观锁 |
 | MySQL | 8.x | 关系型数据库 |
 | Redis | 7.x | 登录缓存、权限缓存、统计缓存、验证码、AI 会话 |
+| 和风天气 API | v7 / GeoAPI | 顶栏实时天气与经纬度反查城市（服务端代理） |
 | Knife4j | 4.5.0 | OpenAPI 3 接口文档 |
 | Apache POI | 5.3.0 | Excel 导出 |
 | Hutool | 5.8.32 | 通用工具 |
@@ -197,7 +210,7 @@ mysql -uroot -p < sql/mysql.sql
 
 ```bash
 mysql -uroot -p lab_reservation < sql/upgrade_v1.1.sql
-# ... 按版本号依次执行至 upgrade_v2.3.sql
+# ... 按版本号依次执行至最新增量脚本
 ```
 
 ### 2. 启动 Redis
@@ -213,6 +226,9 @@ redis-server
 ```bash
 # 提供数据库密码（不要写进配置文件）
 export DB_PASSWORD="你的MySQL密码"      # Windows PowerShell: $env:DB_PASSWORD="..."
+
+# 可选：启用顶栏天气（不配置时天气自动隐藏，其余功能不受影响）
+export QWEATHER_KEY="你的和风天气 Key"
 
 mvn -DskipTests package
 java -jar target/lab-reservation-system.jar --spring.profiles.active=dev
@@ -307,8 +323,8 @@ stateDiagram-v2
     PENDING --> APPROVED: 审批通过
     PENDING --> REJECTED: 审批驳回
     PENDING --> CANCELLED: 本人撤销
-    APPROVED --> COMPLETED: 签到并签退
-    APPROVED --> CANCELLED: 本人取消
+    APPROVED --> COMPLETED: 签到签退 / 时段结束自动完成
+    APPROVED --> CANCELLED: 本人取消（仅开始前）
     REJECTED --> [*]
     COMPLETED --> [*]
     CANCELLED --> [*]
@@ -317,6 +333,8 @@ stateDiagram-v2
 - 合法流转由 `ReservationStatus.canTransition()` 集中约束，非法跳转在 Service 层直接拦截
 - `REJECTED` / `COMPLETED` / `CANCELLED` 为终态
 - **草稿、已取消、已驳回不占用时段**，不阻塞他人预约
+- **已通过的单据一旦到达开始时间即不可取消**，避免过期预约被「取消」篡改历史
+- 定时任务每 5 分钟把「结束时刻已过且仍为已通过」的预约推进为已完成，状态不再长期失真
 
 ### 六重预约校验
 
@@ -431,9 +449,9 @@ lab-reservation-system/
 ├── src/main/java/com/lab/reservation/
 │   ├── aop/            操作日志切面（注解 + 环绕通知）
 │   ├── common/         统一响应、分页、基础实体、错误码
-│   ├── config/         安全、Redis、MyBatis-Plus、Jackson、AI、Knife4j
+│   ├── config/         安全、Redis、MyBatis-Plus、Jackson、AI、天气、Knife4j
 │   ├── constant/       Redis Key 常量集中管理
-│   ├── controller/     15 个 REST 控制器
+│   ├── controller/     16 个 REST 控制器
 │   ├── dto/            请求参数对象（含校验注解）
 │   ├── entity/         15 个数据库实体
 │   ├── enums/          预约/签到/报修状态机、消息类型
@@ -457,7 +475,8 @@ lab-reservation-system/
 │   ├── src/styles/             全局样式与主题变量
 │   ├── src/utils/              请求、SSE、主题、图表、倒计时
 │   └── src/views/              20 个页面 + 4 个看板组件（登录、驾驶舱、预约、签到、报修、AI…）
-├── sql/                        建库脚本 + 12 个增量升级脚本
+├── sql/                        建库脚本 + 14 个增量升级脚本
+├── postman/                    Postman 接口测试集合与环境变量
 ├── deploy/tailnet/             systemd 单元、静态服务脚本、部署说明
 └── pom.xml
 ```
@@ -486,10 +505,36 @@ lab-reservation-system/
 | 报修 | `/repair` | 提交、受理、完成、取消、我的报修、设备选项 |
 | 消息 | `/notice` | 我的消息、未读数、发送、批量已读 |
 | 统计 | `/stats` | 概览、趋势、分布、热门、实时看板、看板汇总 |
+| 天气 | `/weather` | 当前实况（后端代理和风天气，Key 不下发前端） |
 | 系统管理 | `/user` `/role` `/permission` `/operlog` | 用户、角色、权限树、操作日志 |
 | AI 助手 | `/ai` | 流式对话（SSE）、会话历史、清空会话 |
 
 完整参数与响应示例见 Knife4j 文档：`/doc.html`。
+
+---
+
+## 接口测试
+
+仓库内置一套可直接运行的 Postman 集合，覆盖 12 个模块、**56 个请求 / 137 条断言**：
+
+| 文件 | 说明 |
+| --- | --- |
+| `postman/LabWise-API.postman_collection.json` | 接口集合：登录后自动写入 token，后续请求自动携带 Bearer |
+| `postman/LabWise-Local.postman_environment.json` | 环境变量：baseUrl、管理员账号 |
+
+覆盖范围：认证、个人中心、驾驶舱统计与天气、实验室与开放时段、设备台账、预约、签到、报修、消息、系统管理，以及安全回归（未认证 401、伪造 JWT 401、越权 40300、CORS 白名单、接口文档不泄露）。
+
+```bash
+# 方式一：Postman Desktop（后端仅内网可达，需用桌面 Agent 执行）
+# 导入两个 JSON → 选择环境「LabWise 本地/tailnet」→ Run collection
+
+# 方式二：命令行
+npx newman run postman/LabWise-API.postman_collection.json \
+  -e postman/LabWise-Local.postman_environment.json
+```
+
+> 「业务写操作」文件夹会真实创建预约、报修与临时账号，但随后立即取消/删除；
+> 它依赖「01 认证」写入的令牌，请整包运行而不是单独执行该文件夹。
 
 ---
 
@@ -542,6 +587,8 @@ ssh <host> 'mv /tmp/app.jar ~/lab-reservation/app.jar \
 | v2.2 | AI 知识库 | 19 条业务知识 + 关键词计分检索 + Redis 缓存，回答从「暂无资料」变为可引用规则 |
 | v2.3 | 工程质量 | 修复按角色筛选的分页失真、消除 N+1、补充查询索引、引入单元测试体系（59 例） |
 | v2.6 | 体验打磨 | AI 回答排版与圆形头像、长邮箱完整折行、预约详情与导出表头的称谓统一 |
+| v2.7 | 安全加固 | CORS 收敛为白名单、验证码回传改为开关、登录失败限流；过期预约自动完成且开始后禁止取消 |
+| v2.8 | 体验与质量 | 顶栏和风天气（后端代理隐藏 Key）、站内消息系统通知推送、报修闭环步骤条自动复位、Postman 接口测试集合 |
 
 各版本的详细改动与踩坑记录见 `deploy/tailnet/README.md`。
 
