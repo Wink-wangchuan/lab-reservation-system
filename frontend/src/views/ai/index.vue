@@ -24,7 +24,10 @@
                  referrerpolicy="no-referrer" @error="hideBroken" />
           </div>
           <div class="empty-title">{{ roleTitle }}</div>
-          <div class="empty-sub">试着一句提问，例如：</div>
+          <div class="empty-sub">
+            试着一句提问，例如：
+            <button class="re-pick" type="button" @click="pickExamples">换一批</button>
+          </div>
           <div class="empty-chips">
             <span v-for="q in examples" :key="q" class="chip" @click="send(q)">{{ q }}</span>
           </div>
@@ -88,7 +91,7 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { aiHistory, aiHistoryClear } from '@/api'
@@ -156,7 +159,8 @@ function renderMarkdown(text) {
 }
 
 // 主页面提示词按角色区分：不同角色关心的数据与操作不同，
-// 同时保证示例问题能命中后端的关键词取数逻辑（实验室/预约/签到/报修），避免问了个「暂无数据」。
+// 同时保证示例问题能命中后端的关键词取数逻辑（实验室/预约/签到/报修/统计/热门），
+// 避免问了个「暂无数据」。每个角色准备 10 条，每次进入页面随机抽 4 条展示。
 const roleKey = computed(() => {
   const roles = userStore.roles || []
   if (roles.includes('SUPER_ADMIN') || roles.includes('ADMIN')) return 'admin'
@@ -172,45 +176,93 @@ const roleConfig = {
     examples: [
       '今天有哪些实验室空闲？',
       '当前有哪些故障设备？',
+      '预约审批与驳回的规则是什么？',
       '新用户注册审核流程是怎样的？',
-      '预约审批与驳回的规则是什么？'
+      '系统里一共有多少间实验室和设备？',
+      '最近的热门实验室排行是什么？',
+      '现在有多少预约在等待审批？',
+      '哪些设备报修还没处理完？',
+      '怎么配置实验室的开放时段？',
+      '角色和权限是怎么分配的？'
     ]
   },
   labAdmin: {
     title: '你好，实验室管理员',
-    sub: '可问实验室占用、故障设备与报修处理',
+    sub: '可问实验室占用、故障设备、报修处理与开放时段',
     examples: [
       '今天有哪些实验室空闲？',
       '当前有哪些故障设备？',
       '设备报修处理流程是怎样的？',
-      '如何配置实验室的开放时段？'
+      '如何配置实验室的开放时段？',
+      '我负责的实验室有哪些设备？',
+      '报修单从受理到完成要走几步？',
+      '实验室被锁定了怎么解锁？',
+      '这个月的预约统计怎么样？',
+      '哪些实验室使用最频繁？',
+      '设备台账里的数量是怎么统计的？'
     ]
   },
   teacher: {
     title: '老师你好，今天要处理什么？',
-    sub: '可问实验室占用、我的预约与签到核销',
+    sub: '可问实验室占用、我的预约、签到核销与报修进度',
     examples: [
       '今天有哪些实验室空闲？',
       '我的预约现在是什么状态？',
       '签到核销怎么操作？',
-      '教师提交的预约由谁审批？'
+      '教师提交的预约由谁审批？',
+      '我提交的报修处理到哪一步了？',
+      '怎么给学生发站内消息？',
+      '我的签到记录在哪里看？',
+      '预约被驳回后还能再申请吗？',
+      '本周的实验室占用情况怎么样？',
+      '怎么查看某个实验室的开放时段？'
     ]
   },
   student: {
     title: '同学你好，需要我帮你查什么？',
-    sub: '可问实验室占用、我的预约、签到与报修',
+    sub: '可问实验室占用、我的预约、签到签退与设备报修',
     examples: [
       '今天有哪些实验室空闲？',
       '我的预约现在是什么状态？',
       '怎么签到和签退？',
-      '设备坏了怎么报修？'
+      '设备坏了怎么报修？',
+      '预约时间冲突了怎么办？',
+      '实验室被锁定是什么意思？',
+      '我的报修单处理到哪一步了？',
+      '预约可以取消吗？有什么限制？',
+      '我最近有哪几条预约？',
+      '怎么查看我的未读消息？'
     ]
   }
 }
 
+/** 空状态展示的示例条数 */
+const EXAMPLE_COUNT = 4
+
+/** 本次进入页面随机抽出的示例 */
+const pickedExamples = ref([])
+
+/**
+ * 从当前角色的示例池里随机抽若干条
+ *
+ * <p>用 Fisher-Yates 洗牌后取前 N 条：每次打开页面（或点「换一批」）看到的
+ * 组合与顺序都不同，避免长期只看到同样四个问题。</p>
+ */
+function pickExamples() {
+  const pool = [...roleConfig[roleKey.value].examples]
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    const tmp = pool[i]
+    pool[i] = pool[j]
+    pool[j] = tmp
+  }
+  pickedExamples.value = pool.slice(0, Math.min(EXAMPLE_COUNT, pool.length))
+}
+
 const roleTitle = computed(() => roleConfig[roleKey.value].title)
 const roleSub = computed(() => roleConfig[roleKey.value].sub)
-const examples = computed(() => roleConfig[roleKey.value].examples)
+// 空状态只展示本次随机抽出的示例，而不是整池
+const examples = computed(() => pickedExamples.value)
 
 // 用户气泡头像使用当前登录用户自己的头像；未设置头像时回退为姓名末字
 const avatarSrc = computed(() => userStore.userInfo?.avatar || '')
@@ -297,7 +349,17 @@ function clearAll() {
   }).catch(() => {})
 }
 
-onMounted(loadHistory)
+onMounted(() => {
+  // 每次进入页面都重新抽一组示例，避免长期看到同样的四个问题
+  pickExamples()
+  loadHistory()
+})
+
+// 角色变化（如切换账号）或清空会话后重新抽取
+watch(roleKey, pickExamples)
+watch(() => messages.value.length, (len, prev) => {
+  if (len === 0 && prev > 0) pickExamples()
+})
 
 onBeforeUnmount(() => {
   // 页面卸载时中止正在进行的流，避免连接悬挂
@@ -399,6 +461,25 @@ onBeforeUnmount(() => {
 .empty-sub {
   font-size: 12.5px;
   color: var(--ink-3);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+// 示例「换一批」：弱化的文字按钮，悬停只做轻微透明度变化（不加下划线）
+.re-pick {
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--brand, #5b8cff);
+  opacity: 0.85;
+  transition: opacity 0.2s ease;
+
+  &:hover {
+    opacity: 1;
+  }
 }
 
 .empty-chips {
