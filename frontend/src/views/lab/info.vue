@@ -16,7 +16,7 @@
         </div>
       </div>
 
-      <el-table v-loading="loading" :data="records" stripe border>
+      <el-table v-if="!isMobile" v-loading="loading" :data="records" stripe border>
         <el-table-column label="编码" prop="labCode" width="110" />
         <el-table-column label="名称" prop="labName" min-width="180" />
         <el-table-column label="类型" prop="labType" width="140" />
@@ -46,6 +46,41 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <!-- 窄屏改用卡片列表：列多且操作列固定，横向滚动会把名称与设备描述挤到不可读 -->
+      <div v-else v-loading="loading" class="lab-cards">
+        <div v-for="row in records" :key="row.id" class="lab-card">
+          <div class="lab-card__head">
+            <div class="lab-card__id">
+              <span class="lab-card__name">{{ row.labName }}</span>
+              <span class="lab-card__code">{{ row.labCode }}</span>
+            </div>
+            <el-tag v-if="row.deviceFault" type="danger" size="small">故障锁定</el-tag>
+            <el-tag v-else type="success" size="small">正常</el-tag>
+          </div>
+          <div class="lab-card__meta">
+            <span v-if="row.labType">{{ row.labType }}</span>
+            <span v-if="row.location">位置：{{ row.location }}</span>
+            <span>容量：{{ row.capacity }} 人</span>
+          </div>
+          <div v-if="row.equipmentDesc" class="lab-card__desc">{{ row.equipmentDesc }}</div>
+          <div class="lab-card__switches">
+            <div class="lab-card__switch">
+              <span>开放预约</span>
+              <el-switch v-model="row.openStatus" :active-value="1" :inactive-value="0" size="small" @change="(v) => toggleOpen(row, v)" />
+            </div>
+            <div class="lab-card__switch">
+              <span>启用预约</span>
+              <el-switch v-model="row.enableReserve" :active-value="1" :inactive-value="0" size="small" @change="(v) => toggleReserve(row, v)" />
+            </div>
+          </div>
+          <div class="lab-card__actions">
+            <el-button size="small" type="primary" plain @click="openEdit(row)">编辑</el-button>
+            <el-button v-if="canDelete" size="small" type="danger" plain @click="doDelete(row)">删除</el-button>
+          </div>
+        </div>
+        <el-empty v-if="!loading && !records.length" description="暂无实验室" :image-size="80" />
+      </div>
 
       <div class="table-pagination">
         <el-pagination
@@ -101,9 +136,15 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { labPage, labAdd, labEdit, labDelete, labOpen, labReserve, userOptions } from '@/api'
 import { useUserStore } from '@/store/user'
+
+// 窄屏（<=640px）用卡片列表替代宽表格，避免固定操作列把其它列挤出可视区
+const isMobile = ref(window.innerWidth <= 640)
+function trackWidth() {
+  isMobile.value = window.innerWidth <= 640
+}
 
 const userStore = useUserStore()
 // 删除实验室需要 system:lab:delete，实验室管理员没有该权限 —— 无权限时不渲染删除按钮
@@ -196,5 +237,118 @@ function doDelete(row) {
   }).catch(() => {})
 }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  window.addEventListener('resize', trackWidth)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', trackWidth)
+})
 </script>
+
+<style scoped lang="scss">
+/* ===== 窄屏卡片列表 ===== */
+.lab-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 80px;
+  margin-top: 4px;
+}
+
+.lab-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--card-bg-soft);
+}
+
+.lab-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.lab-card__id {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.lab-card__name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lab-card__code {
+  font-size: 12px;
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+}
+
+.lab-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.lab-card__meta > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.lab-card__desc {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+}
+
+.lab-card__switches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  padding-top: 2px;
+}
+
+.lab-card__switch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.lab-card__actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.lab-card__actions .el-button {
+  width: 100%;
+  margin-left: 0 !important;
+}
+
+/* 无删除权限时只剩一个按钮，占满整行避免半格留白 */
+.lab-card__actions .el-button:only-child {
+  grid-column: span 2;
+}
+</style>

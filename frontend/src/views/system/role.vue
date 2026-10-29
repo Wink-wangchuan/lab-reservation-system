@@ -13,7 +13,7 @@
         </div>
       </div>
 
-      <el-table v-loading="loading" :data="records" stripe border>
+      <el-table v-if="!isMobile" v-loading="loading" :data="records" stripe border>
         <el-table-column label="角色编码" prop="roleCode" width="160" />
         <el-table-column label="角色名称" prop="roleName" width="160" />
         <el-table-column label="备注" prop="remark" min-width="200" />
@@ -31,6 +31,33 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <!-- 窄屏改用卡片列表：固定操作列会把角色名称和备注挤出可视区 -->
+      <div v-else v-loading="loading" class="role-cards">
+        <div v-for="row in records" :key="row.id" class="role-card">
+          <div class="role-card__head">
+            <div class="role-card__title">
+              <span class="role-card__name">{{ row.roleName || '-' }}</span>
+              <code class="role-card__code">{{ row.roleCode }}</code>
+            </div>
+            <el-switch
+              v-model="row.status"
+              :active-value="1"
+              :inactive-value="0"
+              size="small"
+              @change="(v) => toggleStatus(row, v)"
+            />
+          </div>
+          <div class="role-card__meta">排序 {{ row.sort ?? 0 }}</div>
+          <div class="role-card__remark" :class="{ 'is-empty': !row.remark }">{{ row.remark || '暂无备注' }}</div>
+          <div class="role-card__actions">
+            <el-button size="small" type="primary" plain @click="openEdit(row)">编辑</el-button>
+            <el-button size="small" type="warning" plain @click="openPerms(row)">分配权限</el-button>
+            <el-button size="small" type="danger" plain @click="doDelete(row)">删除</el-button>
+          </div>
+        </div>
+        <el-empty v-if="!loading && !records.length" description="暂无角色" :image-size="80" />
+      </div>
 
       <div class="table-pagination">
         <el-pagination
@@ -91,8 +118,14 @@
 </template>
 
 <script setup>
-import { ref, nextTick, onMounted } from 'vue'
+import { ref, nextTick, onMounted, onUnmounted } from 'vue'
 import { rolePage, roleAdd, roleEdit, roleDelete, roleStatus, rolePerms, roleAssignPerms, permTree } from '@/api'
+
+// 窄屏（<=640px）用卡片列表替代宽表格，避免固定操作列把内容挤出可视区
+const isMobile = ref(window.innerWidth <= 640)
+function trackWidth() {
+  isMobile.value = window.innerWidth <= 640
+}
 
 const loading = ref(false)
 const records = ref([])
@@ -191,13 +224,102 @@ function doDelete(row) {
   }).catch(() => {})
 }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  window.addEventListener('resize', trackWidth)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', trackWidth)
+})
 </script>
 
-<style scoped>
+<style scoped lang="scss">
 .perm-tree-wrap {
   max-height: 420px;
   overflow-y: auto;
   padding: 4px 2px;
+}
+
+/* ===== 窄屏卡片列表 ===== */
+.role-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 80px;
+  margin-top: 4px;
+}
+
+.role-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--card-bg-soft);
+}
+
+.role-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.role-card__title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.role-card__name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink-1);
+  overflow-wrap: anywhere;
+}
+
+/* 角色编码用等宽字体小标签，避免和名称混在一起 */
+.role-card__code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--ink-2);
+  background: var(--card-bg);
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  padding: 0 6px;
+  overflow-wrap: anywhere;
+}
+
+.role-card__meta {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.role-card__remark {
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+
+  &.is-empty {
+    color: var(--ink-3);
+  }
+}
+
+.role-card__actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding-top: 2px;
+
+  .el-button {
+    width: 100%;
+    margin-left: 0 !important;
+  }
 }
 </style>

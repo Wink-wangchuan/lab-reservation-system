@@ -20,7 +20,7 @@
         </div>
       </div>
 
-      <el-table v-loading="loading" :data="records" stripe border>
+      <el-table v-if="!isMobile" v-loading="loading" :data="records" stripe border>
         <el-table-column label="编码" prop="deviceCode" width="250" />
         <el-table-column label="名称" prop="deviceName" min-width="150" />
         <el-table-column label="类型" prop="deviceType" width="120" />
@@ -49,6 +49,53 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <!-- 窄屏改用卡片列表：编码/品牌型号等长文本在表格里会被固定操作列挤得不可读 -->
+      <div v-else v-loading="loading" class="device-cards">
+        <div v-for="row in records" :key="row.id" class="device-card">
+          <div class="device-card__head">
+            <span class="device-card__name">{{ row.deviceName || '-' }}</span>
+            <el-tag :type="row.status === 1 ? 'primary' : 'info'" size="small">
+              {{ row.status === 1 ? '在用' : row.status === 2 ? '停用' : '报废' }}
+            </el-tag>
+          </div>
+          <div class="device-card__code">{{ row.deviceCode }}</div>
+          <!-- 故障设备优先告警，避免在卡片里被其它字段淹没 -->
+          <div class="device-card__fault" :class="{ 'is-danger': row.faultStatus === 1 }">
+            <el-tag :type="row.faultStatus === 1 ? 'danger' : 'success'" size="small">
+              {{ row.faultStatus === 1 ? '故障' : '正常' }}
+            </el-tag>
+            <span v-if="row.faultStatus === 1" class="device-card__fault-desc">{{ row.faultDesc || '未填写故障描述' }}</span>
+          </div>
+          <div class="device-card__grid">
+            <div class="device-card__item">
+              <span class="device-card__label">类型</span>
+              <span class="device-card__value">{{ row.deviceType || '-' }}</span>
+            </div>
+            <div class="device-card__item">
+              <span class="device-card__label">数量</span>
+              <span class="device-card__value">{{ row.quantity || 1 }}</span>
+            </div>
+            <div class="device-card__item">
+              <span class="device-card__label">实验室</span>
+              <span class="device-card__value">{{ row.labName || '-' }}</span>
+            </div>
+            <div class="device-card__item">
+              <span class="device-card__label">采购日期</span>
+              <span class="device-card__value">{{ row.purchaseDate || '-' }}</span>
+            </div>
+            <div class="device-card__item device-card__item--full">
+              <span class="device-card__label">品牌型号</span>
+              <span class="device-card__value">{{ row.brandModel || '-' }}</span>
+            </div>
+          </div>
+          <div class="device-card__actions">
+            <el-button size="small" type="primary" plain @click="openEdit(row)">编辑</el-button>
+            <el-button size="small" type="danger" plain @click="doDelete(row)">删除</el-button>
+          </div>
+        </div>
+        <el-empty v-if="!loading && !records.length" description="暂无设备" :image-size="80" />
+      </div>
 
       <div class="table-pagination">
         <el-pagination
@@ -114,8 +161,14 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { devicePage, deviceAdd, deviceEdit, deviceDelete, labList } from '@/api'
+
+// 窄屏（<=640px）用卡片列表替代宽表格，避免固定操作列把其它列挤出可视区
+const isMobile = ref(window.innerWidth <= 640)
+function trackWidth() {
+  isMobile.value = window.innerWidth <= 640
+}
 
 const loading = ref(false)
 const records = ref([])
@@ -191,5 +244,118 @@ function doDelete(row) {
 onMounted(() => {
   load()
   loadLabs()
+  window.addEventListener('resize', trackWidth)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', trackWidth)
 })
 </script>
+
+<style scoped lang="scss">
+/* ===== 窄屏卡片列表 ===== */
+.device-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 80px;
+  margin-top: 4px;
+}
+
+.device-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--card-bg-soft);
+}
+
+.device-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.device-card__name {
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.device-card__code {
+  font-size: 12px;
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+}
+
+/* 故障提示条：正常时低调，故障时用 danger 底色提示 */
+.device-card__fault {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ink-2);
+
+  &.is-danger {
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: rgba(245, 108, 108, 0.12);
+  }
+}
+
+.device-card__fault-desc {
+  min-width: 0;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+/* 两列排布：短字段左右对齐，长字段单独占整行 */
+.device-card__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 12px;
+}
+
+.device-card__item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font-size: 13px;
+
+  &--full {
+    grid-column: 1 / -1;
+  }
+}
+
+.device-card__label {
+  flex: none;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.device-card__value {
+  min-width: 0;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.device-card__actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding-top: 2px;
+
+  .el-button {
+    width: 100%;
+    margin-left: 0 !important;
+  }
+}
+</style>

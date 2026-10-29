@@ -82,7 +82,7 @@
         </div>
 
         <!-- 列表展示 -->
-        <el-table v-loading="loading" :data="slots" stripe border class="slot-table">
+        <el-table v-if="!isMobile" v-loading="loading" :data="slots" stripe border class="slot-table">
           <el-table-column label="星期" width="170">
             <template #default="{ row }">
               <el-tag size="small">{{ weekLabel(row.weekDay) }}</el-tag>
@@ -110,6 +110,28 @@
           </template>
         </el-table>
 
+        <!-- 窄屏改用卡片列表：表格列多，横向滚动会把时段名称与时间挤出可视区 -->
+        <div v-else v-loading="loading" class="slot-cards">
+          <div v-for="(row, index) in slots" :key="index" class="slot-card">
+            <div class="slot-card__head">
+              <el-tag size="small">{{ weekLabel(row.weekDay) }}</el-tag>
+              <el-tag :type="row.status === 1 ? 'success' : 'info'" size="small">
+                {{ row.status === 1 ? '启用' : '停用' }}
+              </el-tag>
+            </div>
+            <div class="slot-card__name">{{ row.slotName }}</div>
+            <div class="slot-card__meta">
+              <span><el-icon><Clock /></el-icon>{{ row.startTime }} - {{ row.endTime }}</span>
+              <span><el-icon><User /></el-icon>上限 {{ row.maxPeople }} 人</span>
+            </div>
+            <div class="slot-card__actions">
+              <el-button size="small" type="primary" plain @click="editRow(index)">编辑</el-button>
+              <el-button size="small" type="danger" plain @click="removeRow(index)">删除</el-button>
+            </div>
+          </div>
+          <el-empty v-if="!loading && !slots.length" description="该实验室还没有配置任何开放时段，请在上方表单添加" :image-size="70" />
+        </div>
+
         <div class="btn-row">
           <el-button :loading="saving" type="success" @click="saveAll">
             <el-icon><Check /></el-icon> 保存全部配置
@@ -121,8 +143,14 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { labList, slotList, slotSave } from '@/api'
+
+// 窄屏（<=640px）用卡片列表替代表格，避免时段名称与时间被横向滚动挤掉
+const isMobile = ref(window.innerWidth <= 640)
+function trackWidth() {
+  isMobile.value = window.innerWidth <= 640
+}
 
 const labs = ref([])
 const currentLabId = ref(null)
@@ -301,10 +329,17 @@ async function saveAll() {
   }
 }
 
-onMounted(loadLabs)
+onMounted(() => {
+  loadLabs()
+  window.addEventListener('resize', trackWidth)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', trackWidth)
+})
 </script>
 
-<style scoped>
+<style scoped lang="scss">
 .form-card {
   display: flex;
   flex-direction: column;
@@ -384,6 +419,67 @@ onMounted(loadLabs)
 .btn-row {
   display: flex;
   justify-content: flex-end;
+}
+
+/* ===== 窄屏卡片列表 ===== */
+.slot-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 70px;
+}
+
+.slot-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--card-bg-soft);
+}
+
+.slot-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.slot-card__name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink-1);
+  overflow-wrap: anywhere;
+}
+
+.slot-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.slot-card__meta > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.slot-card__actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.slot-card__actions .el-button {
+  width: 100%;
+  margin-left: 0 !important;
 }
 
 @media (max-width: 640px) {

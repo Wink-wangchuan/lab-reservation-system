@@ -29,7 +29,7 @@
         </div>
       </div>
 
-      <el-table v-loading="loading" :data="records" stripe border>
+      <el-table v-if="!isMobile" v-loading="loading" :data="records" stripe border>
         <el-table-column label="报修单号" prop="repairNo" width="210" />
         <el-table-column label="设备" prop="deviceName" min-width="180" />
         <el-table-column label="报修人" prop="reporterName" width="90" />
@@ -59,6 +59,48 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <!-- 窄屏改用卡片列表：故障描述等长文本在表格里会被固定操作列挤得不可读 -->
+      <div v-else v-loading="loading" class="repair-cards">
+        <div v-for="row in records" :key="row.id" class="repair-card">
+          <div class="repair-card__head">
+            <span class="repair-card__no">{{ row.repairNo }}</span>
+            <el-tag :type="statusType(row.status)" size="small">{{ row.statusDesc }}</el-tag>
+          </div>
+          <div class="repair-card__title">{{ row.deviceName || '-' }}</div>
+          <div class="repair-card__grid">
+            <div class="repair-card__item">
+              <span class="repair-card__label">报修人</span>
+              <span class="repair-card__value">{{ row.reporterName || '-' }}</span>
+            </div>
+            <div class="repair-card__item">
+              <span class="repair-card__label">维修人</span>
+              <span class="repair-card__value">{{ row.handlerName || '-' }}</span>
+            </div>
+            <div class="repair-card__item repair-card__item--full">
+              <span class="repair-card__label">提交时间</span>
+              <span class="repair-card__value">{{ row.createTime || '-' }}</span>
+            </div>
+          </div>
+          <div class="repair-card__block">
+            <span class="repair-card__label">故障描述</span>
+            <span class="repair-card__value">{{ row.faultDesc || '-' }}</span>
+          </div>
+          <div v-if="row.handleRemark" class="repair-card__block">
+            <span class="repair-card__label">维修备注</span>
+            <span class="repair-card__value">{{ row.handleRemark }}</span>
+          </div>
+          <!-- 动作与原表格保持一致：维修动作属处理人权限，取消报修还需判断归属 -->
+          <div v-if="row.status === 'PENDING' && (canHandle || (canSubmit && isMine(row)))" class="repair-card__actions">
+            <el-button v-if="canHandle" size="small" type="warning" plain @click="doStart(row)">开始维修</el-button>
+            <el-button v-if="canSubmit && isMine(row)" size="small" type="danger" plain @click="doCancel(row)">取消</el-button>
+          </div>
+          <div v-else-if="row.status === 'REPAIRING' && canHandle" class="repair-card__actions">
+            <el-button size="small" type="success" plain @click="doComplete(row)">完成维修</el-button>
+          </div>
+        </div>
+        <el-empty v-if="!loading && !records.length" description="暂无报修工单" :image-size="80" />
+      </div>
 
       <div class="table-pagination">
         <el-pagination
@@ -101,6 +143,12 @@ import {
   repairCancel, repairDeviceOptions
 } from '@/api'
 import { useUserStore } from '@/store/user'
+
+// 窄屏（<=640px）用卡片列表替代宽表格，避免固定操作列把其它列挤出可视区
+const isMobile = ref(window.innerWidth <= 640)
+function trackWidth() {
+  isMobile.value = window.innerWidth <= 640
+}
 
 const userStore = useUserStore()
 
@@ -151,7 +199,10 @@ function syncFlowStage() {
   flowStage.value = active ? FLOW_STEP[active.status] : 0
 }
 
-onBeforeUnmount(() => clearTimeout(flowResetTimer))
+onBeforeUnmount(() => {
+  clearTimeout(flowResetTimer)
+  window.removeEventListener('resize', trackWidth)
+})
 
 const devices = ref([])
 const submitVisible = ref(false)
@@ -244,5 +295,111 @@ function doCancel(row) {
   }).catch(() => {})
 }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  window.addEventListener('resize', trackWidth)
+})
 </script>
+
+<style scoped lang="scss">
+/* ===== 窄屏卡片列表 ===== */
+.repair-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 80px;
+  margin-top: 4px;
+}
+
+.repair-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--card-bg-soft);
+}
+
+.repair-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.repair-card__no {
+  min-width: 0;
+  font-size: 12px;
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.repair-card__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 两列排布：报修人/维修人并列，长字段单独占整行 */
+.repair-card__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 12px;
+}
+
+.repair-card__item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font-size: 13px;
+
+  &--full {
+    grid-column: 1 / -1;
+  }
+}
+
+.repair-card__block {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.repair-card__label {
+  flex: none;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.repair-card__value {
+  min-width: 0;
+  line-height: 1.6;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.repair-card__actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding-top: 2px;
+
+  .el-button {
+    width: 100%;
+    margin-left: 0 !important;
+  }
+
+  /* 只有一个按钮时占满整行 */
+  .el-button:only-child {
+    grid-column: 1 / -1;
+  }
+}
+</style>

@@ -16,7 +16,7 @@
         </div>
       </div>
 
-      <el-table v-loading="loading" :data="records" stripe border>
+      <el-table v-if="!isMobile" v-loading="loading" :data="records" stripe border>
         <el-table-column label="单号" prop="reservationNo" width="210" />
         <el-table-column label="实验室" prop="labName" width="170" />
         <el-table-column label="申请人" prop="studentName" width="90" />
@@ -42,6 +42,51 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <!-- 窄屏改用卡片列表：单号/用途等长文本在表格里会被固定操作列挤得不可读 -->
+      <div v-else v-loading="loading" class="resv-cards">
+        <div v-for="row in records" :key="row.id" class="resv-card">
+          <div class="resv-card__head">
+            <span class="resv-card__no">{{ row.reservationNo }}</span>
+            <el-tag :type="statusType(row.status)" size="small">{{ row.statusDesc }}</el-tag>
+          </div>
+          <div class="resv-card__title">{{ row.labName || '-' }}</div>
+          <div class="resv-card__grid">
+            <div class="resv-card__item">
+              <span class="resv-card__label">申请人</span>
+              <span class="resv-card__value">{{ row.studentName || '-' }}</span>
+            </div>
+            <div class="resv-card__item">
+              <span class="resv-card__label">审批人</span>
+              <span class="resv-card__value">{{ row.teacherName || '-' }}</span>
+            </div>
+            <div class="resv-card__item">
+              <span class="resv-card__label">日期</span>
+              <span class="resv-card__value">{{ row.reserveDate || '-' }}</span>
+            </div>
+            <div class="resv-card__item">
+              <span class="resv-card__label">时段</span>
+              <span class="resv-card__value">{{ hhmm(row.startTime) }} - {{ hhmm(row.endTime) }}</span>
+            </div>
+            <div class="resv-card__item">
+              <span class="resv-card__label">人数</span>
+              <span class="resv-card__value">{{ row.peopleCount ?? '-' }}</span>
+            </div>
+          </div>
+          <div class="resv-card__purpose">
+            <span class="resv-card__label">用途</span>
+            <span class="resv-card__value">{{ row.purpose || '-' }}</span>
+          </div>
+          <div class="resv-card__actions">
+            <template v-if="row.canApprove">
+              <el-button size="small" type="success" plain @click="doApprove(row, 'APPROVE')">通过</el-button>
+              <el-button size="small" type="danger" plain @click="doApprove(row, 'REJECT')">驳回</el-button>
+            </template>
+            <el-button size="small" type="primary" plain @click="viewDetail(row)">详情</el-button>
+          </div>
+        </div>
+        <el-empty v-if="!loading && !records.length" description="暂无预约记录" :image-size="80" />
+      </div>
 
       <div class="table-pagination">
         <el-pagination
@@ -79,9 +124,15 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { reservationPage, reservationApprove, reservationExport } from '@/api'
 import { useUserStore } from '@/store/user'
+
+// 窄屏（<=640px）用卡片列表替代宽表格，避免固定操作列把其它列挤出可视区
+const isMobile = ref(window.innerWidth <= 640)
+function trackWidth() {
+  isMobile.value = window.innerWidth <= 640
+}
 
 const userStore = useUserStore()
 // 导出接口需要 reservation:export 权限，教师没有该权限 —— 无权限时不渲染该按钮
@@ -183,5 +234,113 @@ function viewDetail(row) {
   detailVisible.value = true
 }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  window.addEventListener('resize', trackWidth)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', trackWidth)
+})
 </script>
+
+<style scoped lang="scss">
+/* ===== 窄屏卡片列表 ===== */
+.resv-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 80px;
+  margin-top: 4px;
+}
+
+.resv-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--card-bg-soft);
+}
+
+.resv-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.resv-card__no {
+  font-size: 12px;
+  color: var(--ink-3);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resv-card__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 两列排布，字段少时也保持左右对齐 */
+.resv-card__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 12px;
+}
+
+.resv-card__item,
+.resv-card__purpose {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.resv-card__label {
+  flex: none;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.resv-card__value {
+  min-width: 0;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.resv-card__purpose {
+  align-items: flex-start;
+}
+
+.resv-card__actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding-top: 2px;
+
+  .el-button {
+    width: 100%;
+    margin-left: 0 !important;
+  }
+
+  /* 仅「详情」一个按钮时占满整行 */
+  .el-button:only-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 640px) {
+  .resv-card__title {
+    font-size: 14px;
+  }
+}
+</style>

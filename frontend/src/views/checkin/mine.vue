@@ -17,7 +17,7 @@
       <el-skeleton v-if="loading && !records.length" :rows="6" animated />
 
       <template v-else>
-        <div class="table-scroll">
+        <div v-if="!isMobile" class="table-scroll">
           <el-table v-loading="loading" :data="records" stripe border>
             <el-table-column label="预约单号" prop="reservationNo" width="210" />
             <el-table-column label="实验室" prop="labName" min-width="170" />
@@ -46,6 +46,37 @@
               </template>
             </el-table-column>
           </el-table>
+        </div>
+
+        <!-- 窄屏改用卡片列表：核销码、状态与操作在表格里会被挤到横向滚动区外 -->
+        <div v-else v-loading="loading" class="checkin-cards">
+          <div v-for="row in records" :key="row.id" class="checkin-card">
+            <div class="checkin-card__head">
+              <span class="checkin-card__lab">{{ row.labName }}</span>
+              <el-tag :type="statusType(row.status)" size="small">{{ row.statusDesc }}</el-tag>
+            </div>
+            <!-- 核销码按位拆开展示，窄屏下便于逐位读给管理员核销 -->
+            <div v-if="row.checkinCode" class="checkin-card__code">{{ formatCode(row.checkinCode) }}</div>
+            <div class="checkin-card__meta">
+              <span>{{ row.reserveDate }}</span>
+              <span>{{ hhmm(row.startTime) }} - {{ hhmm(row.endTime) }}</span>
+            </div>
+            <div class="checkin-card__meta checkin-card__meta--muted">
+              <span>单号 {{ row.reservationNo }}</span>
+              <span>签到 {{ row.checkinTime || '-' }}</span>
+              <span v-if="row.checkoutTime">签退 {{ row.checkoutTime }}</span>
+            </div>
+            <div
+              v-if="row.status === 'SIGN_IN_PENDING' || row.status === 'CHECKED_IN' || row.checkoutable"
+              class="checkin-card__actions"
+            >
+              <el-button
+                v-if="row.status === 'SIGN_IN_PENDING' || row.status === 'CHECKED_IN'"
+                size="small" type="primary" plain @click="showCode(row)"
+              >核销码</el-button>
+              <el-button v-if="row.checkoutable" size="small" type="success" plain @click="doCheckout(row)">签退</el-button>
+            </div>
+          </div>
         </div>
 
         <el-empty v-if="!loading && !records.length" description="暂无签到记录，审批通过的预约会自动生成签到凭证" />
@@ -79,8 +110,14 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { checkinMine, checkinCode, checkinCheckout } from '@/api'
+
+// 窄屏（<=640px）用卡片列表替代宽表格，避免固定操作列把状态与核销码挤出可视区
+const isMobile = ref(window.innerWidth <= 640)
+function trackWidth() {
+  isMobile.value = window.innerWidth <= 640
+}
 
 const loading = ref(false)
 const records = ref([])
@@ -107,10 +144,12 @@ function statusType(s) {
 
 const codeVisible = ref(false)
 const current = ref(null)
-const formattedCode = computed(() => {
-  const code = current.value?.checkinCode || ''
-  return code ? code.split('').join(' ') : ''
-})
+// 核销码按位拆开，避免在窄屏上连成一串不易逐位核对
+function formatCode(code) {
+  return code ? String(code).split('').join(' ') : ''
+}
+
+const formattedCode = computed(() => formatCode(current.value?.checkinCode))
 
 async function load() {
   loading.value = true
@@ -141,7 +180,14 @@ function doCheckout(row) {
   }).catch(() => {})
 }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  window.addEventListener('resize', trackWidth)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', trackWidth)
+})
 </script>
 
 <style scoped lang="scss">
@@ -183,6 +229,84 @@ onMounted(load)
   color: var(--ink-3);
   line-height: 1.7;
   max-width: 320px;
+}
+
+/* ===== 窄屏卡片列表 ===== */
+.checkin-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 80px;
+  margin-top: 4px;
+}
+
+.checkin-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--card-bg-soft);
+}
+
+.checkin-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.checkin-card__lab {
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink-1);
+  overflow-wrap: anywhere;
+}
+
+.checkin-card__code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: var(--ink-1);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.checkin-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.checkin-card__meta > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.checkin-card__meta--muted {
+  color: var(--ink-3);
+}
+
+.checkin-card__actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.checkin-card__actions .el-button {
+  width: 100%;
+  margin-left: 0 !important;
+}
+
+/* 只有「签退」或「核销码」一个按钮时占满整行 */
+.checkin-card__actions .el-button:only-child {
+  grid-column: span 2;
 }
 
 @media (max-width: 640px) {
