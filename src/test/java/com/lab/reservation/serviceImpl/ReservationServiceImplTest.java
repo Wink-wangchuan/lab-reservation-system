@@ -54,7 +54,7 @@ import static org.mockito.Mockito.when;
  *
  * <p>覆盖两条最容易出错的业务链：</p>
  * <ol>
- *   <li><b>提交校验链</b>：六道校验必须按顺序拦截，任何一道失效都会产生脏数据</li>
+ *   <li><b>提交校验链</b>：七道校验必须按顺序拦截，任何一道失效都会产生脏数据</li>
  *   <li><b>审批权限规则</b>：不能自审、教师单只能管理员审批、仅待审核可流转</li>
  * </ol>
  *
@@ -111,7 +111,7 @@ class ReservationServiceImplTest {
     // ==================== 提交校验链 ====================
 
     @Nested
-    @DisplayName("提交预约的六重校验")
+    @DisplayName("提交预约的七重校验")
     class SubmitValidation {
 
         @Test
@@ -208,6 +208,42 @@ class ReservationServiceImplTest {
                     () -> reservationService.submit(dto));
 
             assertEquals(ResultCode.RESERVATION_OVER_CAPACITY.getCode(), e.getCode());
+        }
+
+        @Test
+        @DisplayName("人数超过时段人数上限")
+        void overSlotCapacity() {
+            when(labInfoMapper.selectById(LAB_ID)).thenReturn(openLab(60));
+            LabTimeSlot limited = slot(8, 0, 9, 40);
+            limited.setMaxPeople(20);
+            when(labTimeSlotMapper.selectList(any())).thenReturn(List.of(limited));
+
+            ReservationSubmitDTO dto = validDto();
+            dto.setPeopleCount(30);
+
+            BusinessException e = assertThrows(BusinessException.class,
+                    () -> reservationService.submit(dto));
+
+            assertEquals(ResultCode.RESERVATION_OVER_CAPACITY.getCode(), e.getCode());
+            assertTrue(e.getMessage().contains("时段"));
+        }
+
+        @Test
+        @DisplayName("时段人数上限为 0 表示不限")
+        void zeroSlotLimitMeansUnlimited() {
+            when(labInfoMapper.selectById(LAB_ID)).thenReturn(openLab(60));
+            LabTimeSlot unlimited = slot(8, 0, 9, 40);
+            unlimited.setMaxPeople(0);
+            when(labTimeSlotMapper.selectList(any())).thenReturn(List.of(unlimited));
+            when(deviceMapper.selectFaultDevicesByLabId(LAB_ID)).thenReturn(List.of());
+            when(reservationMapper.selectConflictingReservations(
+                    any(), any(), any(), any(), any(), any())).thenReturn(List.of());
+            when(roleMapper.selectRoleCodesByUserId(STUDENT_ID)).thenReturn(List.of("STUDENT"));
+            when(roleMapper.selectUserIdsByPermission(any())).thenReturn(List.of());
+
+            reservationService.submit(validDto());
+
+            verify(reservationMapper).insert(any(LabReservation.class));
         }
 
         @Test

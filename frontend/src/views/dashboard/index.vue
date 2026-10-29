@@ -147,7 +147,7 @@ const cards = computed(() => {
     { key: 'resv', label: '预约总数', value: o.reservationTotal ?? 0, icon: 'Calendar', bg: 'linear-gradient(135deg,#8f6bff,#c46bff)' },
     { key: 'today', label: '今日预约', value: o.todayReservation ?? 0, icon: 'Sunny', bg: 'linear-gradient(135deg,#ffb84d,#ff8a5c)' },
     { key: 'pending', label: '待审核预约', value: o.pendingApproval ?? 0, icon: 'BellFilled', bg: 'linear-gradient(135deg,#5b8cff,#35b3e0)', adminOnly: true },
-    { key: 'repair', label: '待处理报修', value: o.pendingRepair ?? 0, icon: 'Tools', bg: 'linear-gradient(135deg,#ff6b81,#ff8a5c)', adminOnly: true },
+    { key: 'repair', label: '未完成报修', value: o.pendingRepair ?? 0, icon: 'Tools', bg: 'linear-gradient(135deg,#ff6b81,#ff8a5c)', adminOnly: true },
     { key: 'fault', label: '故障设备', value: o.faultDevice ?? 0, icon: 'WarnTriangleFilled', bg: 'linear-gradient(135deg,#ff4d6d,#f77b6f)', adminOnly: true }
   ]
   return all.filter((c) => !c.adminOnly || isOperator.value)

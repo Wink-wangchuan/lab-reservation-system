@@ -130,12 +130,14 @@ public class ReservationServiceImpl implements ReservationService {
             throw new BusinessException(ResultCode.PARAM_ERROR, "结束时间必须晚于开始时间");
         }
         // 2.1 开放时段校验：请求时段必须被该实验室当日某个启用时段完整包含
-        validateTimeWindow(lab.getId(), date, dto.getStartTime(), dto.getEndTime());
-        // 2.2 容量校验
+        List<LabTimeSlot> matchedSlots = validateTimeWindow(lab.getId(), date,
+                dto.getStartTime(), dto.getEndTime());
+        // 2.2 容量校验：实验室容量是所有时段的公共上限，时段自身还可配置更小的人数上限
         if (dto.getPeopleCount() > lab.getCapacity()) {
             throw new BusinessException(ResultCode.RESERVATION_OVER_CAPACITY,
                     "预约人数超过实验室容量(" + lab.getCapacity() + ")");
         }
+        validateSlotCapacity(matchedSlots, dto.getPeopleCount());
 
         // ========== 3. 设备故障锁定实验室校验 ==========
         validateDeviceLock(lab.getId(), dto.getUseDeviceIds());
@@ -488,20 +490,40 @@ public class ReservationServiceImpl implements ReservationService {
 
     /**
      * 开放时间段校验：请求的 [start,end) 必须被该实验室【对应星期】的某个启用时段完整包含。
+     *
+     * @return 完整包含该预约时段的开放时段（可能多条，用于后续的人数上限校验）
      */
-    private void validateTimeWindow(Long labId, LocalDate date,
-                                    java.time.LocalTime start, java.time.LocalTime end) {
+    private List<LabTimeSlot> validateTimeWindow(Long labId, LocalDate date,
+                                                 java.time.LocalTime start, java.time.LocalTime end) {
         int weekDay = date.getDayOfWeek().getValue();
         List<LabTimeSlot> slots = labTimeSlotMapper.selectList(
                 new LambdaQueryWrapper<LabTimeSlot>()
                         .eq(LabTimeSlot::getLabId, labId)
                         .eq(LabTimeSlot::getWeekDay, weekDay)
                         .eq(LabTimeSlot::getStatus, 1));
-        boolean matches = slots.stream().anyMatch(slot ->
-                !slot.getStartTime().isAfter(start) && !slot.getEndTime().isBefore(end));
-        if (!matches) {
+        List<LabTimeSlot> matched = slots.stream()
+                .filter(slot -> !slot.getStartTime().isAfter(start) && !slot.getEndTime().isBefore(end))
+                .toList();
+        if (matched.isEmpty()) {
             throw new BusinessException(ResultCode.RESERVATION_NOT_ALLOW,
                     "预约时段[" + start + "-" + end + "]不在该实验室的开放时间段内");
+        }
+        return matched;
+    }
+
+    /**
+     * 时段人数上限校验：时段上配置的 max_people 是单次预约的人数上限，0 表示不限。
+     * <p>命中多个时段时取最严格的一条，避免通过嵌套时段绕过限制。</p>
+     */
+    private void validateSlotCapacity(List<LabTimeSlot> matchedSlots, int peopleCount) {
+        int limit = matchedSlots.stream()
+                .map(LabTimeSlot::getMaxPeople)
+                .filter(v -> v != null && v > 0)
+                .min(Integer::compareTo)
+                .orElse(0);
+        if (limit > 0 && peopleCount > limit) {
+            throw new BusinessException(ResultCode.RESERVATION_OVER_CAPACITY,
+                    "预约人数超过该时段人数上限(" + limit + ")");
         }
     }
 

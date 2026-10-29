@@ -67,8 +67,8 @@ const todos = computed(() => {
       perms: ['reservation:list', 'reservation:approve']
     },
     {
-      key: 'repair', label: '待处理报修', value: props.pendingRepair, color: '#ff4d6d',
-      desc: '等待接单的维修工单', route: '/device/repair',
+      key: 'repair', label: '未完成报修', value: props.pendingRepair, color: '#ff4d6d',
+      desc: '待处理与维修中的工单', route: '/device/repair',
       perms: ['device:repair:list', 'device:repair:handle', 'device:repair:submit']
     },
     {

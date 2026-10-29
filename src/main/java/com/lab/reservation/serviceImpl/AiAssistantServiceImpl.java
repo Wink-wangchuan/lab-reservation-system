@@ -486,7 +486,7 @@ public class AiAssistantServiceImpl implements AiAssistantService {
                 blocks.add("【待审核预约（最近 " + ROW_LIMIT + " 条）】\n" + pendingReservationBlock());
             }
             if (containsAny(question, "报修", "维修", "待处理")) {
-                blocks.add("【待处理报修（最近 " + ROW_LIMIT + " 条）】\n" + pendingRepairBlock());
+                blocks.add("【未完成报修（最近 " + ROW_LIMIT + " 条）】\n" + pendingRepairBlock());
             }
         }
         blocks.add(slotBlock(question));
@@ -606,7 +606,7 @@ public class AiAssistantServiceImpl implements AiAssistantService {
             sb.append(String.format("- 实验室 %d 间、设备 %d 台、用户 %d 人、预约总次数 %d 次",
                     nvl(o.getLabTotal()), nvl(o.getDeviceTotal()),
                     nvl(o.getUserTotal()), nvl(o.getReservationTotal())));
-            sb.append(String.format("%n- 今日预约 %d 次、待审核 %d 单、待处理报修 %d 单、故障设备 %d 台",
+            sb.append(String.format("%n- 今日预约 %d 次、待审核 %d 单、未完成报修 %d 单、故障设备 %d 台",
                     nvl(o.getTodayReservation()), nvl(o.getPendingApproval()),
                     nvl(o.getPendingRepair()), nvl(o.getFaultDevice())));
         }
@@ -663,16 +663,21 @@ public class AiAssistantServiceImpl implements AiAssistantService {
 
     private String pendingRepairBlock() {
         List<DeviceRepair> list = repairMapper.selectList(new LambdaQueryWrapper<DeviceRepair>()
-                .eq(DeviceRepair::getStatus, RepairStatus.PENDING.name())
+                .in(DeviceRepair::getStatus,
+                        RepairStatus.PENDING.name(), RepairStatus.REPAIRING.name())
                 .orderByAsc(DeviceRepair::getCreateTime)
                 .last("LIMIT " + ROW_LIMIT));
         if (list.isEmpty()) {
-            return "- 当前没有待处理的报修";
+            return "- 当前没有未完成的报修";
         }
         return list.stream()
-                .map(r -> String.format("- %s | 设备 %s | %s 提交 | %s",
-                        r.getRepairNo(), r.getDeviceName(), r.getReporterName(),
-                        StrUtil.maxLength(StrUtil.blankToDefault(r.getFaultDesc(), ""), 40)))
+                .map(r -> {
+                    RepairStatus status = RepairStatus.of(r.getStatus());
+                    return String.format("- %s | 设备 %s | %s 提交 | 状态 %s | %s",
+                            r.getRepairNo(), r.getDeviceName(), r.getReporterName(),
+                            status == null ? r.getStatus() : status.getDesc(),
+                            StrUtil.maxLength(StrUtil.blankToDefault(r.getFaultDesc(), ""), 40));
+                })
                 .collect(Collectors.joining("\n"));
     }
 

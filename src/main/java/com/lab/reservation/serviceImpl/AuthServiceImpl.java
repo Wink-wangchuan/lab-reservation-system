@@ -2,6 +2,7 @@ package com.lab.reservation.serviceImpl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.lab.reservation.common.ResultCode;
+import com.lab.reservation.config.JwtProperties;
 import com.lab.reservation.constant.RedisKeyConstants;
 import com.lab.reservation.dto.CaptchaSendDTO;
 import com.lab.reservation.dto.CodeLoginDTO;
@@ -47,7 +48,7 @@ import java.util.concurrent.TimeUnit;
  *       因此用用户名取码、用手机号登录同样成立</li>
  *   <li><b>自助注册</b>：账号置为待审核、不预授任何角色，并通知管理员审核；
  *       管理员在「用户管理」通过审核时一并为其指定角色，之后账号方可登录</li>
- *   <li><b>忘记密码</b>：手机验证码校验通过后重置密码，并清除登录缓存强制重新登录</li>
+ *   <li><b>忘记密码</b>：手机验证码校验通过后重置密码并吊销已签发令牌，强制用新密码重新登录</li>
  * </ul>
  *
  * @author LabWise
@@ -62,6 +63,7 @@ public class AuthServiceImpl implements AuthService {
     private final PermissionService permissionService;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
+    private final JwtProperties jwtProperties;
     private final RedisTemplate<String, Object> redisTemplate;
     private final CaptchaService captchaService;
     private final NoticeService noticeService;
@@ -207,7 +209,8 @@ public class AuthServiceImpl implements AuthService {
         captchaService.verify(CaptchaScene.RESET, String.valueOf(user.getId()), dto.getCode());
         user.setPassword(passwordEncoder.encode(dto.getNewPassword()));
         sysUserMapper.updateById(user);
-        // 密码已变更：清除登录缓存，令旧登录态失效
+        // 密码已变更：吊销该账号已签发的全部令牌，旧登录态立即失效
+        revokeTokens(user.getId());
         redisTemplate.delete(RedisKeyConstants.userKey(user.getId()));
     }
 
@@ -215,7 +218,8 @@ public class AuthServiceImpl implements AuthService {
     public void logout() {
         LoginUser loginUser = SecurityUtil.getLoginUser();
         if (loginUser != null) {
-            // 清除用户缓存，达到主动下线效果；后续旧 Token 因缓存缺失被拒绝
+            // 主动下线：吊销令牌并清除登录缓存，避免旧 Token 在缓存回源后继续可用
+            revokeTokens(loginUser.getUserId());
             redisTemplate.delete(RedisKeyConstants.userKey(loginUser.getUserId()));
         }
     }
@@ -226,6 +230,17 @@ public class AuthServiceImpl implements AuthService {
     }
 
     /* ==================== 辅助逻辑 ==================== */
+
+    /**
+     * 吊销指定用户已签发的全部令牌
+     *
+     * <p>JWT 无状态无法单独作废，因此写入吊销标记并保留到原令牌自然过期；
+     * {@code JwtAuthenticationFilter} 命中该标记时不再建立认证，用户下次登录成功后由签发逻辑清除。</p>
+     */
+    private void revokeTokens(Long userId) {
+        redisTemplate.opsForValue().set(RedisKeyConstants.revokedKey(userId), 1,
+                jwtProperties.getExpiration(), TimeUnit.MILLISECONDS);
+    }
 
     /**
      * 账号解析：用户名或手机号任一命中，返回唯一用户

@@ -42,7 +42,7 @@ public interface StatsMapper {
                 (SELECT COUNT(*) FROM lab_reservation
                   WHERE deleted = 0 AND status = 'PENDING') AS pendingApproval,
                 (SELECT COUNT(*) FROM device_repair
-                  WHERE deleted = 0 AND status = 'PENDING') AS pendingRepair,
+                  WHERE deleted = 0 AND status IN ('PENDING', 'REPAIRING')) AS pendingRepair,
                 (SELECT COUNT(*) FROM device
                   WHERE deleted = 0 AND fault_status = 1) AS faultDevice
             """)
