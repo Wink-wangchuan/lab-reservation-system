@@ -120,6 +120,9 @@ public final class RedisKeyConstants {
     /** AI 知识库缓存（启用条目 JSON 列表，10 分钟过期）：ai:kb:list */
     public static final String AI_KB = "ai:kb:list";
 
+    /** AI 代办待澄清上下文（用户下一步回答后继续执行）：ai:action:pending:{userId} */
+    public static final String AI_ACTION_PENDING = "ai:action:pending:{}";
+
     /** 登录失败计数（防暴力破解）：login:fail:{username} */
     public static final String LOGIN_FAIL = "login:fail:{}";
 
@@ -149,5 +152,10 @@ public final class RedisKeyConstants {
     /** 组装 AI 并发占用键 */
     public static String aiBusyKey(Long userId) {
         return StrUtil.format(AI_BUSY, userId);
+    }
+
+    /** 组装 AI 代办待澄清上下文键 */
+    public static String aiActionPendingKey(Long userId) {
+        return StrUtil.format(AI_ACTION_PENDING, userId);
     }
 }

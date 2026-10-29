@@ -72,6 +72,16 @@ class AiActionServiceImplTest {
     }
 
     @Test
+    @DisplayName("下下周 / 周末")
+    void nextNextWeekAndWeekend() {
+        LocalDate monday = TODAY.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+        assertEquals(monday.plusDays(4 + 14),
+                AiActionServiceImpl.parseDate("帮我预约下下周五第一计算机实验室"));
+        assertEquals(TODAY.with(TemporalAdjusters.nextOrSame(DayOfWeek.SATURDAY)),
+                AiActionServiceImpl.parseDate("帮我预约周末第一计算机实验室"));
+    }
+
+    @Test
     @DisplayName("无法识别或非法日期返回 null")
     void invalid() {
         assertNull(AiActionServiceImpl.parseDate("帮我预约第一计算机实验室"));
