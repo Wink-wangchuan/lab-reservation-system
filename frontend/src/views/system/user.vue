@@ -18,7 +18,7 @@
         </div>
       </div>
 
-      <el-table v-loading="loading" :data="records" stripe border>
+      <el-table v-if="!isMobile" v-loading="loading" :data="records" stripe border>
         <el-table-column label="账号" prop="username" width="130" />
         <el-table-column label="姓名" prop="realName" width="110" />
         <el-table-column label="手机号" prop="phone" width="130" />
@@ -51,6 +51,42 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <!-- 窄屏改用卡片列表：表格列多且操作列固定，横向滚动时会把账号挤到不可读 -->
+      <div v-else v-loading="loading" class="user-cards">
+        <div v-for="row in records" :key="row.id" class="user-card">
+          <div class="user-card__head">
+            <div class="user-card__id">
+              <span class="user-card__name">{{ row.realName || '-' }}</span>
+              <span class="user-card__account">@{{ row.username }}</span>
+            </div>
+            <el-tag v-if="row.status === 2" type="warning" size="small">待审核</el-tag>
+            <el-switch
+              v-else
+              v-model="row.status"
+              :active-value="1"
+              :inactive-value="0"
+              size="small"
+              @change="(v) => toggleStatus(row, v)"
+            />
+          </div>
+          <div class="user-card__meta">
+            <span v-if="row.phone"><el-icon><Iphone /></el-icon>{{ row.phone }}</span>
+            <span v-if="row.email"><el-icon><Message /></el-icon>{{ row.email }}</span>
+            <span v-if="!row.phone && !row.email" class="user-card__muted">未填写联系方式</span>
+          </div>
+          <div v-if="(row.roleNames || []).length" class="user-card__roles">
+            <el-tag v-for="r in row.roleNames" :key="r" size="small" type="primary">{{ r }}</el-tag>
+          </div>
+          <div class="user-card__actions">
+            <el-button v-if="row.status === 2" size="small" type="success" plain @click="doApprove(row)">通过审核</el-button>
+            <el-button size="small" type="primary" plain @click="openEdit(row)">编辑</el-button>
+            <el-button size="small" type="warning" plain @click="resetPwd(row)">重置密码</el-button>
+            <el-button size="small" type="danger" plain @click="doDelete(row)">删除</el-button>
+          </div>
+        </div>
+        <el-empty v-if="!loading && !records.length" description="暂无用户" :image-size="80" />
+      </div>
 
       <div class="table-pagination">
         <el-pagination
@@ -137,8 +173,14 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { userPage, userAdd, userEdit, userDelete, userStatus, userResetPwd, userAssignRoles, userApprove, roleList } from '@/api'
+
+// 窄屏（<=640px）用卡片列表替代宽表格，避免固定操作列把其它列挤出可视区
+const isMobile = ref(window.innerWidth <= 640)
+function trackWidth() {
+  isMobile.value = window.innerWidth <= 640
+}
 
 const loading = ref(false)
 const records = ref([])
@@ -271,6 +313,11 @@ function doDelete(row) {
 onMounted(() => {
   load()
   loadRoles()
+  window.addEventListener('resize', trackWidth)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', trackWidth)
 })
 </script>
 
@@ -307,6 +354,94 @@ onMounted(() => {
   font-size: 12px;
   line-height: 1.7;
   color: var(--ink-3);
+}
+
+/* ===== 窄屏卡片列表 ===== */
+.user-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 80px;
+  margin-top: 4px;
+}
+
+.user-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--card-bg-soft);
+}
+
+.user-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.user-card__id {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.user-card__name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-card__account {
+  font-size: 12px;
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.user-card__meta > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.user-card__muted {
+  color: var(--ink-3);
+}
+
+.user-card__roles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.user-card__actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.user-card__actions .el-button {
+  width: 100%;
+  margin-left: 0 !important;
 }
 
 @media (max-width: 640px) {
