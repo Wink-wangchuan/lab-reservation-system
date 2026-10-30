@@ -1,6 +1,7 @@
 package com.lab.reservation.serviceImpl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.lab.reservation.common.OptimisticLockGuard;
@@ -23,7 +24,12 @@ import org.springframework.stereotype.Service;
 import cn.hutool.core.util.StrUtil;
 
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 实验室信息服务实现
@@ -59,16 +65,15 @@ public class LabInfoServiceImpl implements LabInfoService {
         Page<LabInfo> entityPage = new Page<>(page.getCurrent(), page.getSize());
         IPage<LabInfo> result = labInfoMapper.selectPage(entityPage, wrapper);
         Page<LabInfoVO> voResult = new Page<>(result.getCurrent(), result.getSize(), result.getTotal());
-        voResult.setRecords(result.getRecords().stream().map(this::convert).toList());
+        voResult.setRecords(convertBatch(result.getRecords()));
         return voResult;
     }
 
     @Override
     public List<LabInfoVO> listAll() {
-        return labInfoMapper.selectList(new LambdaQueryWrapper<LabInfo>()
-                        .eq(LabInfo::getEnableReserve, 1)
-                        .orderByAsc(LabInfo::getLabName))
-                .stream().map(this::convert).toList();
+        return convertBatch(labInfoMapper.selectList(new LambdaQueryWrapper<LabInfo>()
+                .eq(LabInfo::getEnableReserve, 1)
+                .orderByAsc(LabInfo::getLabName)));
     }
 
     @Override
@@ -158,18 +163,48 @@ public class LabInfoServiceImpl implements LabInfoService {
      * 实体 -> VO，顺带计算故障锁定与今日预约数等实时指标
      */
     private LabInfoVO convert(LabInfo lab) {
-        LabInfoVO vo = new LabInfoVO();
-        BeanUtils.copyProperties(lab, vo);
-        // 故障锁定：所属实验室存在故障设备
-        List<Device> faults = deviceMapper.selectFaultDevicesByLabId(lab.getId());
-        vo.setDeviceFault(!faults.isEmpty());
-        // 今日预约数
-        Long today = reservationMapper.selectCount(new LambdaQueryWrapper<LabReservation>()
-                .eq(LabReservation::getLabId, lab.getId())
-                .eq(LabReservation::getReserveDate, LocalDate.now())
-                .notIn(LabReservation::getStatus,
-                        ReservationStatus.CANCELLED.name(), ReservationStatus.REJECTED.name()));
-        vo.setTodayReservationCount(today == null ? 0L : today);
-        return vo;
+        return convertBatch(List.of(lab)).get(0);
+    }
+
+    /**
+     * 批量转换：故障设备与今日预约数各自只查一次，
+     * 避免逐行调用 {@link #convert} 造成 2N 次数据库往返。
+     */
+    private List<LabInfoVO> convertBatch(List<LabInfo> labs) {
+        if (labs == null || labs.isEmpty()) {
+            return List.of();
+        }
+        List<Long> labIds = labs.stream().map(LabInfo::getId).toList();
+
+        // 故障锁定：一次性取出这批实验室中「存在故障设备」的 labId
+        Set<Long> faultLabIds = deviceMapper.selectList(new LambdaQueryWrapper<Device>()
+                        .select(Device::getLabId)
+                        .in(Device::getLabId, labIds)
+                        .eq(Device::getFaultStatus, 1))
+                .stream()
+                .map(Device::getLabId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        // 今日预约数：按实验室分组一次聚合
+        Map<Long, Long> todayCountByLab = new HashMap<>();
+        QueryWrapper<LabReservation> countWrapper = new QueryWrapper<LabReservation>()
+                .select("lab_id AS labId", "COUNT(*) AS cnt")
+                .in("lab_id", labIds)
+                .eq("reserve_date", LocalDate.now())
+                .notIn("status", ReservationStatus.CANCELLED.name(),
+                        ReservationStatus.REJECTED.name())
+                .groupBy("lab_id");
+        reservationMapper.selectMaps(countWrapper).forEach(m -> todayCountByLab.put(
+                Long.valueOf(m.get("labId").toString()),
+                ((Number) m.get("cnt")).longValue()));
+
+        return labs.stream().map(lab -> {
+            LabInfoVO vo = new LabInfoVO();
+            BeanUtils.copyProperties(lab, vo);
+            vo.setDeviceFault(faultLabIds.contains(lab.getId()));
+            vo.setTodayReservationCount(todayCountByLab.getOrDefault(lab.getId(), 0L));
+            return vo;
+        }).toList();
     }
 }

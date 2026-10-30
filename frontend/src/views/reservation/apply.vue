@@ -14,7 +14,7 @@
         </div>
       </div>
 
-      <el-table v-loading="loading" :data="records" stripe border>
+      <el-table v-if="!isMobile" v-loading="loading" :data="records" stripe border>
         <el-table-column label="预约单号" prop="reservationNo" width="210" />
         <el-table-column label="实验室" prop="labName" width="170" />
         <el-table-column label="日期" width="110">
@@ -40,6 +40,40 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <!-- 窄屏改用卡片列表：单号与用途在表格里会被固定操作列挤出可视区 -->
+      <div v-else v-loading="loading" class="mine-cards">
+        <div v-for="row in records" :key="row.id" class="mine-card">
+          <div class="mine-card__head">
+            <span class="mine-card__no">{{ row.reservationNo }}</span>
+            <el-tag :type="statusType(row.status)" size="small">{{ row.statusDesc }}</el-tag>
+          </div>
+          <div class="mine-card__title">{{ row.labName || '-' }}</div>
+          <div class="mine-card__grid">
+            <div class="mine-card__item">
+              <span class="mine-card__label">日期</span>
+              <span class="mine-card__value">{{ row.reserveDate }}</span>
+            </div>
+            <div class="mine-card__item">
+              <span class="mine-card__label">时段</span>
+              <span class="mine-card__value">{{ hhmm(row.startTime) }} - {{ hhmm(row.endTime) }}</span>
+            </div>
+            <div class="mine-card__item">
+              <span class="mine-card__label">人数</span>
+              <span class="mine-card__value">{{ row.peopleCount }}</span>
+            </div>
+          </div>
+          <div class="mine-card__item mine-card__purpose">
+            <span class="mine-card__label">用途</span>
+            <span class="mine-card__value">{{ row.purpose || '-' }}</span>
+          </div>
+          <div class="mine-card__actions">
+            <el-button v-if="canCancel(row)" size="small" type="danger" plain @click="doCancel(row)">取消预约</el-button>
+            <el-button size="small" type="primary" plain @click="viewDetail(row)">详情</el-button>
+          </div>
+        </div>
+        <el-empty v-if="!loading && !records.length" description="暂无预约" :image-size="80" />
+      </div>
 
       <div class="table-pagination">
         <el-pagination
@@ -123,8 +157,14 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { reservationMine, reservationSubmit, reservationCancel, labList, slotAvailable } from '@/api'
+
+// 窄屏（<=640px）用卡片列表替代宽表格，避免固定操作列把单号/用途挤出可视区
+const isMobile = ref(window.innerWidth <= 640)
+function trackWidth() {
+  isMobile.value = window.innerWidth <= 640
+}
 
 const loading = ref(false)
 const records = ref([])
@@ -265,7 +305,14 @@ function resetForm() {
   applyFormRef.value?.clearValidate()
 }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  window.addEventListener('resize', trackWidth)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', trackWidth)
+})
 </script>
 
 <style scoped>
@@ -274,9 +321,105 @@ onMounted(load)
   color: var(--ink-3);
 }
 
+/* ===== 窄屏卡片列表 ===== */
+.mine-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 80px;
+  margin-top: 4px;
+}
+
+.mine-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--card-bg-soft);
+}
+
+.mine-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.mine-card__no {
+  font-size: 12px;
+  color: var(--ink-3);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mine-card__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mine-card__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 12px;
+}
+
+.mine-card__item,
+.mine-card__purpose {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.mine-card__label {
+  flex: none;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.mine-card__value {
+  min-width: 0;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.mine-card__purpose {
+  align-items: flex-start;
+}
+
+.mine-card__actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.mine-card__actions .el-button {
+  width: 100%;
+  margin-left: 0 !important;
+}
+
+/* 仅「详情」一个按钮时占满整行 */
+.mine-card__actions .el-button:only-child {
+  grid-column: 1 / -1;
+}
+
 @media (max-width: 640px) {
   .slot-empty-tip {
     line-height: 1.6;
+  }
+
+  .mine-card__title {
+    font-size: 14px;
   }
 }
 </style>

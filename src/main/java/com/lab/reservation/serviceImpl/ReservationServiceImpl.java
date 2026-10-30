@@ -51,7 +51,9 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 预约业务服务实现
@@ -543,8 +545,12 @@ public class ReservationServiceImpl implements ReservationService {
                     "实验室存在故障设备[" + names + "]，已锁定，暂不可预约");
         }
         if (useDeviceIds != null && !useDeviceIds.isEmpty()) {
+            // 一次批量取回所选设备，避免逐个 selectById 产生 N 次往返
+            List<Device> devices = deviceMapper.selectBatchIds(useDeviceIds);
+            Map<Long, Device> deviceMap = devices.stream()
+                    .collect(Collectors.toMap(Device::getId, d -> d));
             for (Long id : useDeviceIds) {
-                Device device = deviceMapper.selectById(id);
+                Device device = deviceMap.get(id);
                 if (device == null) {
                     throw new BusinessException(ResultCode.DEVICE_NOT_FOUND, "设备不存在：" + id);
                 }

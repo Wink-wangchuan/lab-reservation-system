@@ -564,6 +564,12 @@ html {
       display: none;
     }
   }
+
+  // 卡片内操作按钮：Element Plus 的 small 按钮仅 24px 高，
+  // 手机端触控区域过小，统一提高到 40px（选择器匹配各页面的 *-card__actions 容器）
+  [class*='card__actions'] .el-button {
+    min-height: 40px;
+  }
 }
 
 // 表单单列化：弹窗内表单在窄屏标签上置，避免输入框过窄
