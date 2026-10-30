@@ -13,6 +13,7 @@
 ## 目录
 
 - [项目简介](#项目简介)
+- [界面预览](#界面预览)
 - [功能特性](#功能特性)
 - [技术栈](#技术栈)
 - [系统架构](#系统架构)
@@ -42,6 +43,26 @@
 - 所有状态流转都会推送**站内消息**，并在审批环节留痕
 
 面向 4 类角色：学生、教师、实验室管理员、超级管理员，权限通过 RBAC 模型细粒度控制到按钮。
+
+---
+
+## 界面预览
+
+> 截图取自实际运行的演示环境（内网 `http://100.96.0.100:8092`），非设计稿。点击图片可查看原图。
+
+| 登录 | 数据驾驶舱 |
+| --- | --- |
+| ![登录](docs/screenshots/01-login.png) | ![数据驾驶舱](docs/screenshots/02-dashboard.png) |
+| **实时占用看板** | **预约管理** |
+| ![实时占用看板](docs/screenshots/03-board.png) | ![预约管理](docs/screenshots/04-reservation-list.png) |
+| **实验室管理** | **设备台账** |
+| ![实验室管理](docs/screenshots/05-lab-info.png) | ![设备台账](docs/screenshots/06-device-list.png) |
+| **报修闭环** | **AI 助手** |
+| ![报修闭环](docs/screenshots/07-device-repair.png) | ![AI 助手](docs/screenshots/08-ai-assistant.png) |
+| **用户管理** | **移动端（预约管理）** |
+| ![用户管理](docs/screenshots/09-system-user.png) | ![移动端预约管理](docs/screenshots/10-mobile-reservation-list.png) |
+
+▶ [观看功能演示视频（约 30 秒，WebM）](docs/demo/labwise-demo.webm)
 
 ---
 
