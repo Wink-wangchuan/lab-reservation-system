@@ -17,7 +17,7 @@
       </div>
 
       <div class="topbar-right">
-        <!-- 当前日期时间 -->
+        <!-- 当前日期时间（窄屏只留时间，日期在页面内已有展示） -->
         <div class="clock" :title="clockDate + ' ' + clockTime">
           <span class="clock-date">{{ clockDate }}</span>
           <span class="clock-time">{{ clockTime }}</span>
@@ -678,13 +678,61 @@ onBeforeUnmount(() => {
     display: flex;
   }
 
-  // 窄屏顶栏空间紧张，隐藏日期时间与天气
-  .clock {
+  // 窄屏顶栏空间紧张：日期时间与天气改为紧凑形态而不是直接隐藏
+  // 左上角只保留抽屉开关，品牌图标让位给时钟与天气
+  .brand {
+    flex-shrink: 0;
+  }
+
+  .brand .brand-logo {
     display: none;
   }
 
+  .clock {
+    display: flex;
+    flex-direction: row;
+    align-items: baseline;
+    gap: 6px;
+    margin-right: 0;
+
+    // 窄屏只保留时间，日期在页面内已有展示
+    .clock-date {
+      display: none;
+    }
+
+    .clock-time {
+      font-size: 13px;
+      letter-spacing: 0;
+    }
+  }
+
   .weather {
-    display: none;
+    display: flex;
+    padding: 4px 8px;
+    gap: 4px;
+
+    // 城市名在窄屏舍弃，靠 title 无法查看，保留温度更实用
+    .weather-city {
+      display: none;
+    }
+
+    .weather-temp {
+      font-size: 12px;
+    }
+  }
+
+  .topbar-right {
+    gap: 6px;
+  }
+
+  .icon-btn {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+  }
+
+  .user-block {
+    gap: 6px;
   }
 
   .sidebar {
