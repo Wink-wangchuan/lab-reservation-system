@@ -69,6 +69,7 @@ class ReservationServiceImplTest {
 
     private static final Long LAB_ID = 101L;
     private static final Long STUDENT_ID = 10L;
+    private static final Long OTHER_STUDENT_ID = 11L;
     private static final Long TEACHER_ID = 99L;
 
     @Mock
@@ -262,22 +263,93 @@ class ReservationServiceImplTest {
         }
 
         @Test
-        @DisplayName("时段已被占用时报时间冲突")
-        void timeConflict() {
+        @DisplayName("同一时段可由多人共享，累计人数未超容量时允许提交")
+        void shareSlotWithinCapacity() {
             when(labInfoMapper.selectById(LAB_ID)).thenReturn(openLab(60));
             when(labTimeSlotMapper.selectList(any())).thenReturn(List.of(slot(8, 0, 9, 40)));
             when(deviceMapper.selectFaultDevicesByLabId(LAB_ID)).thenReturn(List.of());
-            LabReservation existing = new LabReservation();
-            existing.setReservationNo("RSV20260101000000AAAA");
-            existing.setStatus(ReservationStatus.APPROVED.name());
+            LabReservation existing = otherReservation(40);
+            when(reservationMapper.selectConflictingReservations(
+                    any(), any(), any(), any(), any(), any())).thenReturn(List.of(existing));
+            when(roleMapper.selectRoleCodesByUserId(STUDENT_ID)).thenReturn(List.of("STUDENT"));
+            when(roleMapper.selectUserIdsByPermission(any())).thenReturn(List.of());
+
+            ReservationSubmitDTO dto = validDto();
+            dto.setPeopleCount(15);
+
+            reservationService.submit(dto);
+
+            verify(reservationMapper).insert(any(LabReservation.class));
+        }
+
+        @Test
+        @DisplayName("共享后累计人数超过容量时提示剩余可约人数")
+        void shareOverCapacity() {
+            when(labInfoMapper.selectById(LAB_ID)).thenReturn(openLab(60));
+            when(labTimeSlotMapper.selectList(any())).thenReturn(List.of(slot(8, 0, 9, 40)));
+            when(deviceMapper.selectFaultDevicesByLabId(LAB_ID)).thenReturn(List.of());
+            LabReservation existing = otherReservation(40);
             when(reservationMapper.selectConflictingReservations(
                     any(), any(), any(), any(), any(), any())).thenReturn(List.of(existing));
 
+            ReservationSubmitDTO dto = validDto();
+            dto.setPeopleCount(30);
+
             BusinessException e = assertThrows(BusinessException.class,
-                    () -> reservationService.submit(validDto()));
+                    () -> reservationService.submit(dto));
+
+            assertEquals(ResultCode.RESERVATION_OVER_CAPACITY.getCode(), e.getCode());
+            assertTrue(e.getMessage().contains("剩余可约人数 20"));
+        }
+
+        @Test
+        @DisplayName("错开时段的两单不被简单相加，按并发峰值判定")
+        void peakInsteadOfSum() {
+            when(labInfoMapper.selectById(LAB_ID)).thenReturn(openLab(50));
+            // 09:00-11:00 是开放时段，两单分别占前段与后段
+            when(labTimeSlotMapper.selectList(any())).thenReturn(List.of(slot(9, 0, 11, 0)));
+            when(deviceMapper.selectFaultDevicesByLabId(LAB_ID)).thenReturn(List.of());
+            LabReservation first = otherReservation(20);
+            first.setStartTime(LocalTime.of(8, 0));
+            first.setEndTime(LocalTime.of(9, 40));
+            LabReservation second = otherReservation(20);
+            second.setStartTime(LocalTime.of(9, 40));
+            second.setEndTime(LocalTime.of(11, 20));
+            when(reservationMapper.selectConflictingReservations(
+                    any(), any(), any(), any(), any(), any())).thenReturn(List.of(first, second));
+            when(roleMapper.selectRoleCodesByUserId(STUDENT_ID)).thenReturn(List.of("STUDENT"));
+            when(roleMapper.selectUserIdsByPermission(any())).thenReturn(List.of());
+
+            ReservationSubmitDTO dto = validDto();
+            dto.setStartTime(LocalTime.of(9, 0));
+            dto.setEndTime(LocalTime.of(10, 0));
+            dto.setPeopleCount(15);   // 简单相加 55 > 50，峰值 20 + 15 = 35 ≤ 50
+
+            reservationService.submit(dto);
+
+            verify(reservationMapper).insert(any(LabReservation.class));
+        }
+
+        @Test
+        @DisplayName("同一用户在同一实验室同一时段不能重复预约")
+        void sameUserDuplicate() {
+            when(labInfoMapper.selectById(LAB_ID)).thenReturn(openLab(60));
+            when(labTimeSlotMapper.selectList(any())).thenReturn(List.of(slot(8, 0, 9, 40)));
+            when(deviceMapper.selectFaultDevicesByLabId(LAB_ID)).thenReturn(List.of());
+            LabReservation mine = otherReservation(5);
+            mine.setStudentId(STUDENT_ID);
+            mine.setReservationNo("RSV20260101000000CCCC");
+            when(reservationMapper.selectConflictingReservations(
+                    any(), any(), any(), any(), any(), any())).thenReturn(List.of(mine));
+
+            ReservationSubmitDTO dto = validDto();
+            dto.setPeopleCount(10);
+
+            BusinessException e = assertThrows(BusinessException.class,
+                    () -> reservationService.submit(dto));
 
             assertEquals(ResultCode.RESERVATION_CONFLICT.getCode(), e.getCode());
-            assertTrue(e.getMessage().contains("RSV20260101000000AAAA"));
+            assertTrue(e.getMessage().contains("RSV20260101000000CCCC"));
         }
 
         @Test
@@ -552,6 +624,16 @@ class ReservationServiceImplTest {
         reservation.setStartTime(LocalTime.of(8, 0));
         reservation.setEndTime(LocalTime.of(9, 40));
         reservation.setStatus(ReservationStatus.PENDING.name());
+        return reservation;
+    }
+
+    /**
+     * 他人已存在的有效预约（覆盖 validDto 的默认区间，可再改写起止时间）
+     */
+    private LabReservation otherReservation(int peopleCount) {
+        LabReservation reservation = pendingReservation(OTHER_STUDENT_ID);
+        reservation.setPeopleCount(peopleCount);
+        reservation.setStatus(ReservationStatus.APPROVED.name());
         return reservation;
     }
 

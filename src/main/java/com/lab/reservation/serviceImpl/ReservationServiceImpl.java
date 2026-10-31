@@ -3,6 +3,7 @@ package com.lab.reservation.serviceImpl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.lab.reservation.common.OccupancyCalculator;
 import com.lab.reservation.common.ResultCode;
 import com.lab.reservation.dto.ApprovalDTO;
 import com.lab.reservation.dto.ReservationSubmitDTO;
@@ -58,11 +59,13 @@ import java.util.stream.Collectors;
 /**
  * 预约业务服务实现
  *
- * <p style="color:#c00"><b>答辩亮点：时间冲突智能校验算法</b></p>
- * 两个时间区间 [a,b) 与 [c,d) 冲突的充要条件是存在交集：
+ * <p style="color:#c00"><b>答辩亮点：时段按人数共享 + 并发峰值校验</b></p>
+ * 两个时间区间 [a,b) 与 [c,d) 相交的条件是：
  * <pre>a &lt; d AND b &gt; c</pre>
- * 该判定在 Mapper 层通过 {@code selectConflictingReservations} 完成，
- * 并结合预约状态过滤（草稿/取消/驳回不占用）、设备故障锁定、开放时段校验构成三重防线。
+ * 相交不代表冲突——同一时段允许多单共享一间实验室，只要累计人数不超容量。
+ * 已占用人数由 {@link OccupancyCalculator} 用扫描线求出区间内的并发峰值，
+ * 再与「实验室容量」「所命中时段的人数上限」比较；
+ * 配合预约状态过滤（草稿/取消/驳回不占用）、设备故障锁定、开放时段校验构成完整防线。
  *
  * @author LabWise
  * @since 1.0.0
@@ -134,24 +137,37 @@ public class ReservationServiceImpl implements ReservationService {
         // 2.1 开放时段校验：请求时段必须被该实验室当日某个启用时段完整包含
         List<LabTimeSlot> matchedSlots = validateTimeWindow(lab.getId(), date,
                 dto.getStartTime(), dto.getEndTime());
-        // 2.2 容量校验：实验室容量是所有时段的公共上限，时段自身还可配置更小的人数上限
-        if (dto.getPeopleCount() > lab.getCapacity()) {
+        // 2.2 单次人数合法性：实验室容量是所有时段的公共上限，时段自身还可配置更小的人数上限
+        int labCapacity = lab.getCapacity() == null ? 0 : lab.getCapacity();
+        if (dto.getPeopleCount() > labCapacity) {
             throw new BusinessException(ResultCode.RESERVATION_OVER_CAPACITY,
-                    "预约人数超过实验室容量(" + lab.getCapacity() + ")");
+                    "预约人数超过实验室容量(" + labCapacity + ")");
         }
-        validateSlotCapacity(matchedSlots, dto.getPeopleCount());
+        int slotLimit = slotPeopleLimit(matchedSlots);
+        validateSlotCapacity(slotLimit, dto.getPeopleCount());
 
         // ========== 3. 设备故障锁定实验室校验 ==========
         validateDeviceLock(lab.getId(), dto.getUseDeviceIds());
 
-        // ========== 4. 时间冲突智能校验（答辩重点） ==========
-        List<LabReservation> conflicts = reservationMapper.selectConflictingReservations(
+        // ========== 4. 时段容量校验（答辩重点：按人数共享，不再独占整间实验室） ==========
+        List<LabReservation> overlapping = reservationMapper.selectConflictingReservations(
                 lab.getId(), date, dto.getStartTime(), dto.getEndTime(), null, BANNED_STATUS);
-        if (!conflicts.isEmpty()) {
-            LabReservation first = conflicts.get(0);
+
+        // 4.1 同一用户在同一实验室同一时段只允许一条有效预约，避免自己把座位重复占掉
+        LabReservation mine = overlapping.stream()
+                .filter(r -> r.getStudentId() != null && r.getStudentId().equals(current.getUserId()))
+                .findFirst()
+                .orElse(null);
+        if (mine != null) {
             throw new BusinessException(ResultCode.RESERVATION_CONFLICT,
-                    "时间冲突：该时段已被占用（单号 " + first.getReservationNo()
-                            + "，状态 " + ReservationStatus.of(first.getStatus()).getDesc() + "）");
+                    "你在该时段已有预约（单号 " + mine.getReservationNo() + "），请先取消后再预约");
+        }
+
+        // 4.2 已占用人数取「区间内的并发峰值」：互相错开的两单不应被简单相加
+        int booked = OccupancyCalculator.peakPeople(overlapping, dto.getStartTime(), dto.getEndTime());
+        assertRemaining("实验室容量", labCapacity, booked, dto.getPeopleCount());
+        if (slotLimit > 0) {
+            assertRemaining("该时段人数上限", slotLimit, booked, dto.getPeopleCount());
         }
 
         // ========== 5. 组装并保存 ==========
@@ -514,18 +530,42 @@ public class ReservationServiceImpl implements ReservationService {
     }
 
     /**
-     * 时段人数上限校验：时段上配置的 max_people 是单次预约的人数上限，0 表示不限。
-     * <p>命中多个时段时取最严格的一条，避免通过嵌套时段绕过限制。</p>
+     * 取所命中时段的单次人数上限：命中多个时段时取最严格的一条，避免通过嵌套时段绕过限制。
+     *
+     * @return 上限人数，0 表示不限
      */
-    private void validateSlotCapacity(List<LabTimeSlot> matchedSlots, int peopleCount) {
-        int limit = matchedSlots.stream()
+    private int slotPeopleLimit(List<LabTimeSlot> matchedSlots) {
+        return matchedSlots.stream()
                 .map(LabTimeSlot::getMaxPeople)
                 .filter(v -> v != null && v > 0)
                 .min(Integer::compareTo)
                 .orElse(0);
+    }
+
+    /**
+     * 单次预约人数不得超过时段上限（0 不限）
+     */
+    private void validateSlotCapacity(int limit, int peopleCount) {
         if (limit > 0 && peopleCount > limit) {
             throw new BusinessException(ResultCode.RESERVATION_OVER_CAPACITY,
                     "预约人数超过该时段人数上限(" + limit + ")");
+        }
+    }
+
+    /**
+     * 校验本次申请人数是否还放得下：同一时段已有多单共享时，用「上限 - 已占用」得到剩余可约人数。
+     *
+     * @param name        上限名称（实验室容量 / 该时段人数上限），用于拼接提示
+     * @param limit       人数上限（&gt; 0）
+     * @param booked      目标区间内已占用的峰值人数
+     * @param newPeople   本次申请人数
+     */
+    private void assertRemaining(String name, int limit, int booked, int newPeople) {
+        int remaining = limit - booked;
+        if (newPeople > remaining) {
+            throw new BusinessException(ResultCode.RESERVATION_OVER_CAPACITY,
+                    "该时段剩余可约人数 " + Math.max(remaining, 0) + " 人（" + name + " " + limit
+                            + " 人），本次申请 " + newPeople + " 人，请调整人数或更换时段");
         }
     }
 

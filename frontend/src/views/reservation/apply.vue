@@ -110,7 +110,7 @@
             <el-option
               v-for="s in availableSlots"
               :key="s.id"
-              :label="`${s.slotName}  ${hhmm(s.startTime)}-${hhmm(s.endTime)}`"
+              :label="slotLabel(s)"
               :value="s.startTime"
               :disabled="s.occupied"
             />
@@ -123,7 +123,10 @@
           <span class="slot-empty-tip">该实验室当日无可预约时段，请更换实验室或日期</span>
         </el-form-item>
         <el-form-item label="预约人数" prop="peopleCount">
-          <el-input-number v-model="applyForm.peopleCount" :min="1" :max="200" />
+          <div class="people-block">
+            <el-input-number v-model="applyForm.peopleCount" :min="1" :max="peopleMax" />
+            <span v-if="peopleTip" class="people-tip">{{ peopleTip }}</span>
+          </div>
         </el-form-item>
         <el-form-item label="实验用途" prop="purpose">
           <el-input v-model="applyForm.purpose" type="textarea" :rows="3" maxlength="512" show-word-limit placeholder="请输入实验/课程名称与用途说明" />
@@ -157,7 +160,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { reservationMine, reservationSubmit, reservationCancel, labList, slotAvailable } from '@/api'
 
 // 窄屏（<=640px）用卡片列表替代宽表格，避免固定操作列把单号/用途挤出可视区
@@ -252,6 +255,36 @@ async function onDateChange() {
 function onSlotChange(startTime) {
   const slot = availableSlots.value.find((s) => s.startTime === startTime)
   applyForm.value.endTime = slot ? slot.endTime : ''
+  // 同一时段可多人共享，人数不能超过该时段剩余可约人数
+  if (slot && slot.remainingPeople != null) {
+    applyForm.value.peopleCount = Math.min(applyForm.value.peopleCount,
+      Math.max(1, slot.remainingPeople))
+  }
+}
+
+const selectedSlot = computed(
+  () => availableSlots.value.find((s) => s.startTime === applyForm.value.startTime)
+)
+
+// 人数输入框上限：remainingPeople 为 null 表示不限
+const peopleMax = computed(() => {
+  const remaining = selectedSlot.value?.remainingPeople
+  return remaining == null ? 200 : Math.max(1, Math.min(200, remaining))
+})
+
+const peopleTip = computed(() => {
+  const slot = selectedSlot.value
+  if (!slot) return ''
+  if (slot.remainingPeople == null) return `该时段人数不限，已约 ${slot.bookedPeople || 0} 人`
+  if (slot.remainingPeople === 0) return '该时段已约满，请更换时段'
+  return `该时段剩余可约 ${slot.remainingPeople} 人（已约 ${slot.bookedPeople || 0} 人）`
+})
+
+// 时段下拉文案：带上剩余可约人数，让用户选时段时就能看到还能不能挤进去
+function slotLabel(s) {
+  const base = `${s.slotName}  ${hhmm(s.startTime)}-${hhmm(s.endTime)}`
+  if (s.remainingPeople == null) return base
+  return `${base}  ${s.remainingPeople > 0 ? `余 ${s.remainingPeople} 人` : '已满'}`
 }
 
 function doSubmit() {
@@ -317,6 +350,19 @@ onUnmounted(() => {
 
 <style scoped>
 .slot-empty-tip {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+/* 人数输入 + 剩余可约提示：共享预约时提示该时段还能进几个人 */
+.people-block {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.people-tip {
   font-size: 12px;
   color: var(--ink-3);
 }
