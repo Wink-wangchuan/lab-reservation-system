@@ -36,6 +36,9 @@ public class AvailableSlotVO {
     @Schema(description = "剩余可约人数；null 表示不限人数")
     private Integer remainingPeople;
 
+    @Schema(description = "是否整间独占：独占实验室时段相交即不可再约")
+    private Boolean exclusive;
+
     @Schema(description = "是否已约满（剩余可约人数为 0）")
     private Boolean occupied;
 

@@ -96,6 +96,9 @@ public class LabInfoServiceImpl implements LabInfoService {
         BeanUtils.copyProperties(dto, lab);
         lab.setOpenStatus(0);               // 新增默认未开放，由管理员开关
         lab.setEnableReserve(1);
+        if (lab.getShareMode() == null) {
+            lab.setShareMode(1);            // 默认按人数共享
+        }
         labInfoMapper.insert(lab);
     }
 
@@ -115,6 +118,9 @@ public class LabInfoServiceImpl implements LabInfoService {
             throw new BusinessException(ResultCode.DATA_EXISTS, "实验室编号已存在");
         }
         BeanUtils.copyProperties(dto, lab);
+        if (lab.getShareMode() == null) {
+            lab.setShareMode(1);
+        }
         OptimisticLockGuard.check(labInfoMapper.updateById(lab), "该实验室");
     }
 
@@ -156,6 +162,19 @@ public class LabInfoServiceImpl implements LabInfoService {
             throw new BusinessException(ResultCode.PARAM_ERROR, "预约开关不合法");
         }
         lab.setEnableReserve(enableReserve);
+        OptimisticLockGuard.check(labInfoMapper.updateById(lab), "该实验室");
+    }
+
+    @Override
+    public void toggleShareMode(Long id, Integer shareMode) {
+        LabInfo lab = labInfoMapper.selectById(id);
+        if (lab == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "实验室不存在");
+        }
+        if (shareMode != 0 && shareMode != 1) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "占用模式不合法");
+        }
+        lab.setShareMode(shareMode);
         OptimisticLockGuard.check(labInfoMapper.updateById(lab), "该实验室");
     }
 

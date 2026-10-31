@@ -47,6 +47,9 @@ public class LabInfoVO {
     @Schema(description = "是否启用预约功能：0否 1是")
     private Integer enableReserve;
 
+    @Schema(description = "时段占用模式：1可多人共享 0整间独占")
+    private Integer shareMode;
+
     @Schema(description = "备注")
     private String remark;
 

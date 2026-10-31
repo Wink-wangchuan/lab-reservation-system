@@ -44,6 +44,9 @@ public class LabInfoDTO {
     @Schema(description = "封面图URL")
     private String coverUrl;
 
+    @Schema(description = "时段占用模式：1可多人共享 0整间独占")
+    private Integer shareMode;
+
     @Schema(description = "备注")
     private String remark;
 }

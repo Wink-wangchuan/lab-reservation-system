@@ -331,6 +331,30 @@ class ReservationServiceImplTest {
         }
 
         @Test
+        @DisplayName("整间独占实验室时段相交即拒绝，即使人数远未超容量")
+        void exclusiveLabRejectsOverlap() {
+            LabInfo lab = openLab(60);
+            lab.setShareMode(0);
+            when(labInfoMapper.selectById(LAB_ID)).thenReturn(lab);
+            when(labTimeSlotMapper.selectList(any())).thenReturn(List.of(slot(8, 0, 9, 40)));
+            when(deviceMapper.selectFaultDevicesByLabId(LAB_ID)).thenReturn(List.of());
+            LabReservation existing = otherReservation(1);
+            existing.setReservationNo("RSV20260101000000DDDD");
+            when(reservationMapper.selectConflictingReservations(
+                    any(), any(), any(), any(), any(), any())).thenReturn(List.of(existing));
+
+            ReservationSubmitDTO dto = validDto();
+            dto.setPeopleCount(3);
+
+            BusinessException e = assertThrows(BusinessException.class,
+                    () -> reservationService.submit(dto));
+
+            assertEquals(ResultCode.RESERVATION_CONFLICT.getCode(), e.getCode());
+            assertTrue(e.getMessage().contains("整间独占"));
+            assertTrue(e.getMessage().contains("RSV20260101000000DDDD"));
+        }
+
+        @Test
         @DisplayName("同一用户在同一实验室同一时段不能重复预约")
         void sameUserDuplicate() {
             when(labInfoMapper.selectById(LAB_ID)).thenReturn(openLab(60));

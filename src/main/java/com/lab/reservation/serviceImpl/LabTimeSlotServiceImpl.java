@@ -119,6 +119,7 @@ public class LabTimeSlotServiceImpl implements LabTimeSlotService {
         // 剩余可约人数取决于「实验室容量」与「该时段人数上限」中更严格的一个
         LabInfo lab = labInfoMapper.selectById(labId);
         int labCapacity = lab == null || lab.getCapacity() == null ? 0 : lab.getCapacity();
+        boolean exclusive = lab != null && lab.isExclusive();
 
         // 对每个时段在内存中复用区间判定 + 并发峰值统计
         return slots.stream().map(slot -> {
@@ -128,17 +129,23 @@ public class LabTimeSlotServiceImpl implements LabTimeSlotService {
             vo.setStartTime(slot.getStartTime());
             vo.setEndTime(slot.getEndTime());
             vo.setMaxPeople(slot.getMaxPeople());
+            vo.setExclusive(exclusive);
 
             int booked = OccupancyCalculator.peakPeople(dayReservations,
                     slot.getStartTime(), slot.getEndTime());
             vo.setBookedPeople(booked);
-            vo.setReservationCount(dayReservations.stream()
+            long covered = dayReservations.stream()
                     .filter(r -> r.getStartTime().isBefore(slot.getEndTime())
                             && r.getEndTime().isAfter(slot.getStartTime()))
-                    .count());
+                    .count();
+            vo.setReservationCount(covered);
 
             int limit = peopleLimit(labCapacity, slot.getMaxPeople());
-            if (limit > 0) {
+            if (exclusive) {
+                // 整间独占：只要有任意一条相交预约，该时段即不可再约
+                vo.setOccupied(covered > 0);
+                vo.setRemainingPeople(covered > 0 ? 0 : (limit > 0 ? limit : null));
+            } else if (limit > 0) {
                 vo.setRemainingPeople(Math.max(0, limit - booked));
                 vo.setOccupied(vo.getRemainingPeople() == 0);
             } else {

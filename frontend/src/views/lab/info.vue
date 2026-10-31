@@ -22,7 +22,7 @@
         <el-table-column label="类型" prop="labType" width="140" />
         <el-table-column label="位置" prop="location" width="150" />
         <el-table-column label="容量" prop="capacity" width="80" align="center" />
-        <el-table-column label="设备描述" prop="equipmentDesc" min-width="340" />
+        <el-table-column label="设备描述" prop="equipmentDesc" min-width="240" />
         <el-table-column label="开放预约" width="100" align="center">
           <template #default="{ row }">
             <el-switch v-model="row.openStatus" :active-value="1" :inactive-value="0" @change="(v) => toggleOpen(row, v)" />
@@ -31,6 +31,11 @@
         <el-table-column label="启用预约" width="100" align="center">
           <template #default="{ row }">
             <el-switch v-model="row.enableReserve" :active-value="1" :inactive-value="0" @change="(v) => toggleReserve(row, v)" />
+          </template>
+        </el-table-column>
+        <el-table-column label="时段共享" width="100" align="center">
+          <template #default="{ row }">
+            <el-switch v-model="row.shareMode" :active-value="1" :inactive-value="0" @change="(v) => toggleShareMode(row, v)" />
           </template>
         </el-table-column>
         <el-table-column label="故障锁定" width="100" align="center">
@@ -62,6 +67,7 @@
             <span v-if="row.labType">{{ row.labType }}</span>
             <span v-if="row.location">位置：{{ row.location }}</span>
             <span>容量：{{ row.capacity }} 人</span>
+            <span>{{ row.shareMode === 0 ? '整间独占' : '按人数共享' }}</span>
           </div>
           <div v-if="row.equipmentDesc" class="lab-card__desc">{{ row.equipmentDesc }}</div>
           <div class="lab-card__switches">
@@ -72,6 +78,10 @@
             <div class="lab-card__switch">
               <span>启用预约</span>
               <el-switch v-model="row.enableReserve" :active-value="1" :inactive-value="0" size="small" @change="(v) => toggleReserve(row, v)" />
+            </div>
+            <div class="lab-card__switch">
+              <span>时段共享</span>
+              <el-switch v-model="row.shareMode" :active-value="1" :inactive-value="0" size="small" @change="(v) => toggleShareMode(row, v)" />
             </div>
           </div>
           <div class="lab-card__actions">
@@ -120,6 +130,10 @@
             <el-option v-for="u in managers" :key="u.id" :label="u.realName" :value="u.id" />
           </el-select>
         </el-form-item>
+        <el-form-item label="时段共享">
+          <el-switch v-model="form.shareMode" :active-value="1" :inactive-value="0" />
+          <span class="unit">关闭后该实验室同一时段只能被一单占用（整间独占）</span>
+        </el-form-item>
         <el-form-item label="设备描述">
           <el-input v-model="form.equipmentDesc" type="textarea" :rows="2" />
         </el-form-item>
@@ -137,7 +151,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { labPage, labAdd, labEdit, labDelete, labOpen, labReserve, userOptions } from '@/api'
+import { labPage, labAdd, labEdit, labDelete, labOpen, labReserve, labShareMode, userOptions } from '@/api'
 import { useUserStore } from '@/store/user'
 
 // 窄屏（<=640px）用卡片列表替代宽表格，避免固定操作列把其它列挤出可视区
@@ -193,7 +207,7 @@ async function openEdit(row) {
   if (row) {
     form.value = { ...row }
   } else {
-    form.value = { labName: '', labCode: '', labType: '', location: '', capacity: 40, managerId: null, equipmentDesc: '', remark: '' }
+    form.value = { labName: '', labCode: '', labType: '', location: '', capacity: 40, managerId: null, equipmentDesc: '', remark: '', shareMode: 1 }
   }
   if (!managers.value.length) await loadManagers()
   editVisible.value = true
@@ -227,6 +241,11 @@ async function toggleOpen(row, v) {
 async function toggleReserve(row, v) {
   await labReserve(row.id, v)
   ElMessage.success(v === 1 ? '已启用预约' : '已停用预约')
+}
+
+async function toggleShareMode(row, v) {
+  await labShareMode(row.id, v)
+  ElMessage.success(v === 1 ? '已开启时段共享（按人数累计）' : '已改为整间独占（时段只允许一单）')
 }
 
 function doDelete(row) {

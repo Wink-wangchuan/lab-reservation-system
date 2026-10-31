@@ -102,4 +102,13 @@ public class LabInfoController {
         labInfoService.toggleReserve(id, enableReserve);
         return Result.success("操作成功", null);
     }
+
+    @Operation(summary = "切换时段占用模式（可共享/整间独占）")
+    @PutMapping("/{id}/share-mode")
+    @OperationLog(module = "实验室管理", businessType = "update", description = "切换时段占用模式")
+    @PreAuthorize("hasAuthority('system:lab:edit')")
+    public Result<Void> toggleShareMode(@PathVariable Long id, @RequestParam Integer shareMode) {
+        labInfoService.toggleShareMode(id, shareMode);
+        return Result.success("操作成功", null);
+    }
 }

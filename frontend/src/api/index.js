@@ -59,6 +59,8 @@ export const labOpen = (id, openStatus) =>
   request.put(`/lab/${id}/open`, null, { params: { openStatus } })
 export const labReserve = (id, enableReserve) =>
   request.put(`/lab/${id}/reserve`, null, { params: { enableReserve } })
+export const labShareMode = (id, shareMode) =>
+  request.put(`/lab/${id}/share-mode`, null, { params: { shareMode } })
 
 // 开放时段
 export const slotList = (labId) => request.get(`/lab/slot/${labId}`)

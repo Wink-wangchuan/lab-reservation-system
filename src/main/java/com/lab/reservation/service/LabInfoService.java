@@ -38,4 +38,7 @@ public interface LabInfoService {
 
     /** 启用/禁止预约（管控） */
     void toggleReserve(Long id, Integer enableReserve);
+
+    /** 切换时段占用模式：1可多人共享 0整间独占 */
+    void toggleShareMode(Long id, Integer shareMode);
 }

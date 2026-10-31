@@ -48,9 +48,17 @@ public class LabInfo extends BaseEntity {
     /** 是否可预约：1可预约 0禁止预约（管控） */
     private Integer enableReserve;
 
+    /** 时段占用模式：1可多人共享 0整间独占（独占时时段相交即拒绝） */
+    private Integer shareMode;
+
     /** 封面图 */
     private String coverUrl;
 
     /** 备注 */
     private String remark;
+
+    /** 是否整间独占：独占模式下时段相交即冲突，不按人数共享 */
+    public boolean isExclusive() {
+        return shareMode != null && shareMode == 0;
+    }
 }

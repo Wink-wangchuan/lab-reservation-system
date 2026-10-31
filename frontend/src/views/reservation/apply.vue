@@ -275,6 +275,9 @@ const peopleMax = computed(() => {
 const peopleTip = computed(() => {
   const slot = selectedSlot.value
   if (!slot) return ''
+  if (slot.exclusive) {
+    return slot.occupied ? '该时段已被独占预约' : '该实验室为整间独占，该时段可整间预约'
+  }
   if (slot.remainingPeople == null) return `该时段人数不限，已约 ${slot.bookedPeople || 0} 人`
   if (slot.remainingPeople === 0) return '该时段已约满，请更换时段'
   return `该时段剩余可约 ${slot.remainingPeople} 人（已约 ${slot.bookedPeople || 0} 人）`
@@ -283,6 +286,7 @@ const peopleTip = computed(() => {
 // 时段下拉文案：带上剩余可约人数，让用户选时段时就能看到还能不能挤进去
 function slotLabel(s) {
   const base = `${s.slotName}  ${hhmm(s.startTime)}-${hhmm(s.endTime)}`
+  if (s.exclusive) return `${base}  ${s.occupied ? '已占用' : '整间独占'}`
   if (s.remainingPeople == null) return base
   return `${base}  ${s.remainingPeople > 0 ? `余 ${s.remainingPeople} 人` : '已满'}`
 }

@@ -163,7 +163,15 @@ public class ReservationServiceImpl implements ReservationService {
                     "你在该时段已有预约（单号 " + mine.getReservationNo() + "），请先取消后再预约");
         }
 
-        // 4.2 已占用人数取「区间内的并发峰值」：互相错开的两单不应被简单相加
+        // 4.2 整间独占的实验室不参与共享：时段相交即视为冲突
+        if (lab.isExclusive() && !overlapping.isEmpty()) {
+            LabReservation first = overlapping.get(0);
+            throw new BusinessException(ResultCode.RESERVATION_CONFLICT,
+                    "该实验室为整间独占模式，该时段已被占用（单号 " + first.getReservationNo()
+                            + "，状态 " + ReservationStatus.of(first.getStatus()).getDesc() + "）");
+        }
+
+        // 4.3 已占用人数取「区间内的并发峰值」：互相错开的两单不应被简单相加
         int booked = OccupancyCalculator.peakPeople(overlapping, dto.getStartTime(), dto.getEndTime());
         assertRemaining("实验室容量", labCapacity, booked, dto.getPeopleCount());
         if (slotLimit > 0) {
