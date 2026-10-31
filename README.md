@@ -624,6 +624,29 @@ ssh <host> 'mv /tmp/app.jar ~/lab-reservation/app.jar \
 
 敏感配置只写在服务器的 `.env`（权限 600）中，由 systemd `EnvironmentFile` 注入，不进入仓库。
 
+### 发布产物加固（可选）
+
+前端 `dist/` 是公网/内网可直接下载的产物，可用 bla（Counter-REA）注入对抗性混淆，抬高 AI 逆向重建成本：
+
+```bash
+cd frontend
+npx bla-agents defend --input dist --output dist-protected --intensity stealth
+```
+
+| 指标 | 加固前 | 加固后 |
+| --- | --- | --- |
+| 暴露评分 | 98/100（UNPROTECTED） | 防御评分 99/100 |
+| 可重建面 | 2470 项（2457 函数 / 13 类） | 注入 1584 陷阱过程、27378 XRefs、264 诱饵 |
+| 逆向成本 | 约 75 秒 / $1.08 | Token 放大 397 倍，约 $378 |
+
+**已知问题与处理**：bla 1.5.1 生成的混淆标识符可能以数字开头（`0PrivateNode_fff`），且个别类的声明会丢失，导致产物语法或运行时错误。本项目按以下步骤修复后通过全量冒烟：
+
+1. 把违规标识符 `[0-9]CamelCase_hex` 统一改写为 `qCamelCase_hex`（保持引用一致）；
+2. 对仍报未定义引用的分块回退为原始产物 —— 实际回退了 `el-input`、`vue`、`_plugin-vue_export-helper` 3 个分块；
+3. `bla_verify` 复核通过（99 分），再用 Playwright 覆盖登录、驾驶舱、预约、实验室、设备、消息、AI 与移动端，控制台 0 报错。
+
+代价是体积由 1.6 MB 增至约 12 MB（stealth 预设），内网首屏仍在 1 秒内。后端 jar 暂不适用（bla 未提供 JVM 引擎）。
+
 ### 运维定时任务
 
 ```bash
