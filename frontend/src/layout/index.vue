@@ -103,6 +103,9 @@
       </div>
       <SideMenu :menus="menus" :active="activeMenu" @click="drawerVisible = false" />
     </el-drawer>
+
+    <!-- 新消息浮层（未授权系统通知时的页面内提示） -->
+    <NoticeToast :items="toastItems" @close="closeToast" @open="openToast" />
   </div>
 </template>
 
@@ -113,6 +116,7 @@ import { useUserStore } from '@/store/user'
 import { useTheme } from '@/utils/theme'
 import { noticeMine, noticeUnreadCount, weatherNow } from '@/api'
 import SideMenu from './SideMenu.vue'
+import NoticeToast from './NoticeToast.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -258,12 +262,20 @@ async function refreshUnread() {
 // —— 新消息推送 ——
 // 轮询未读数时顺带拉取最新消息，发现比上次记录更新的消息后：
 //  1) 已授权系统通知 → 弹浏览器系统通知（点击聚焦页面并跳转消息中心）
-//  2) 未授权/不支持 → 页面内弹 ElNotification 兜底
+//  2) 未授权/不支持 → 页面内浮层（NoticeToast）兜底
 // 已见消息的最大 ID 按用户存 sessionStorage，刷新页面后不会把旧消息重新弹一遍
 function noticeStorageKey() {
   return `labwise_last_notice_${userStore.userInfo?.userId ?? 'anon'}`
 }
+
+/** 是否已建立过基线：inbox 为空时也需要记住「已经初始化过」，否则第一条新消息会被当成历史消息吞掉 */
+function baselineStorageKey() {
+  return `labwise_notice_baseline_${userStore.userInfo?.userId ?? 'anon'}`
+}
+
 let lastNoticeId = 0
+let baselineChecked = false
+let baselineReady = false
 
 function saveLastNoticeId(id) {
   lastNoticeId = id
@@ -274,21 +286,34 @@ function saveLastNoticeId(id) {
 
 async function pushNewNotices() {
   try {
-    const page = await noticeMine({ current: 1, size: 5 })
+    // size 取 10：消息列表按「未读优先 + 时间倒序」排，只取 5 条容易漏掉最新的一条
+    const page = await noticeMine({ current: 1, size: 10 })
     const records = page?.records || []
-    if (!records.length) return
-    if (!lastNoticeId) {
-      lastNoticeId = Number(sessionStorage.getItem(noticeStorageKey()) || 0)
+    if (!baselineChecked) {
+      baselineChecked = true
+      baselineReady = sessionStorage.getItem(baselineStorageKey()) === '1'
+      if (!lastNoticeId) {
+        lastNoticeId = Number(sessionStorage.getItem(noticeStorageKey()) || 0)
+      }
     }
-    const newest = records[0].id
-    if (!lastNoticeId) {
-      // 首次加载只记录基线，不弹历史消息
-      saveLastNoticeId(newest)
+    // 取本页的最大 ID 作为基线：不能取首条，列表是「未读优先」排序，首条可能是很早的未读消息
+    const maxId = records.reduce((max, n) => Math.max(max, n.id), 0)
+    if (!baselineReady) {
+      baselineReady = true
+      try {
+        sessionStorage.setItem(baselineStorageKey(), '1')
+      } catch { /* 隐私模式忽略 */ }
+      saveLastNoticeId(Math.max(maxId, lastNoticeId))
       return
     }
-    const fresh = records.filter((n) => n.id > lastNoticeId)
+    if (!records.length) return
+    // 只把「未读 + 比已见 ID 更新」的消息当作新消息：
+    // 已读消息可能是刚被标记的旧消息，不能因为排序位置变化又被弹一遍
+    const fresh = records.filter((n) => n.readFlag === 0 && n.id > lastNoticeId)
+    if (maxId > lastNoticeId) {
+      saveLastNoticeId(maxId)
+    }
     if (!fresh.length) return
-    saveLastNoticeId(newest)
     notifyNewNotices(fresh)
   } catch {
     // 拉取失败不影响主流程
@@ -332,23 +357,50 @@ function notifyNewNotices(list) {
     return
   }
 
-  // 页内弹窗兜底（未授权系统通知时）
-  list.slice(0, 3).forEach((n) => {
-    ElNotification({
-      title: n.title || '新消息',
-      message: n.content || '',
-      duration: 8000,
-      onClick: () => router.push('/notice')
-    })
-  })
-  if (list.length > 3) {
-    ElNotification({
-      title: '消息中心',
-      message: `还有 ${list.length - 3} 条新消息，点击查看`,
-      duration: 8000,
-      onClick: () => router.push('/notice')
+  // 页内浮层兜底（未授权系统通知时）：统一交给 NoticeToast 渲染，
+  // 单卡分层 + 类型配色 + 最多 3 张，避免默认 ElNotification 多条堆叠刷屏
+  pushToasts(list)
+}
+
+/** 浮层最多同时展示 3 张：新消息按到达顺序追加，超出后挤掉最旧的一张 */
+const TOAST_MAX = 3
+const toastItems = ref([])
+let summarySeq = 0
+
+function pushToasts(list) {
+  const base = toastItems.value.filter((t) => !t.summary)
+  const known = new Set(base.map((t) => t.id))
+  const fresh = list
+    .filter((n) => !known.has(n.id))
+    .slice(0, TOAST_MAX)
+    .map((n) => ({
+      id: n.id,
+      title: n.title,
+      content: n.content,
+      noticeType: n.noticeType,
+      noticeTypeDesc: n.noticeTypeDesc
+    }))
+  const next = [...base, ...fresh]
+  // 超过 3 条时追加一张汇总卡，点击直接进入消息中心
+  if (list.length > TOAST_MAX) {
+    summarySeq -= 1
+    next.push({
+      id: `summary-${summarySeq}`,
+      summary: true,
+      title: `还有 ${list.length - TOAST_MAX} 条新消息`,
+      content: '点击进入消息中心查看全部未读消息'
     })
   }
+  toastItems.value = next.slice(-TOAST_MAX)
+}
+
+function closeToast(id) {
+  toastItems.value = toastItems.value.filter((t) => t.id !== id)
+}
+
+function openToast(item) {
+  closeToast(item.id)
+  router.push('/notice')
 }
 
 function onCommand(cmd) {
@@ -373,9 +425,10 @@ function onCommand(cmd) {
   }
 }
 
-// 进入消息中心后未读清零，返回时刷新红点
+// 进入消息中心后未读清零，返回时刷新红点；同时收起浮层，避免同一批消息重复打扰
 watch(() => route.path, () => {
   drawerVisible.value = false
+  if (route.path === '/notice') toastItems.value = []
   refreshUnread()
 })
 
