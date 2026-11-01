@@ -80,6 +80,10 @@ public class WaitlistServiceImpl implements WaitlistService {
     /** 单次定时任务最多处理的候补条数 */
     private static final int PROMOTE_BATCH = 100;
 
+    /** 定时任务开关（默认开启） */
+    @org.springframework.beans.factory.annotation.Value("${lab.schedule.promote-waitlist:true}")
+    private boolean promoteEnabled = true;
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     public WaitlistVO join(ReservationSubmitDTO dto) {
@@ -202,6 +206,9 @@ public class WaitlistServiceImpl implements WaitlistService {
     @Scheduled(cron = "0 */5 * * * ?")
     @Transactional(rollbackFor = Exception.class)
     public void promoteWaiting() {
+        if (!promoteEnabled) {
+            return;
+        }
         List<LabWaitlist> list = waitlistMapper.selectList(new LambdaQueryWrapper<LabWaitlist>()
                 .eq(LabWaitlist::getStatus, WaitlistStatus.WAITING.name())
                 .orderByAsc(LabWaitlist::getCreateTime)

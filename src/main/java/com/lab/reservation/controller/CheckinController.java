@@ -3,6 +3,7 @@ package com.lab.reservation.controller;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.lab.reservation.aop.OperationLog;
+import com.lab.reservation.aop.RateLimit;
 import com.lab.reservation.common.PageVO;
 import com.lab.reservation.common.Result;
 import com.lab.reservation.dto.CheckinVerifyDTO;
@@ -43,6 +44,7 @@ public class CheckinController {
     @PostMapping("/verify")
     @OperationLog(module = "签到核销", businessType = "update", description = "核销签到")
     @PreAuthorize("hasAuthority('checkin:verify')")
+    @RateLimit(limit = 10, seconds = 60)
     public Result<CheckinVO> verify(@Valid @RequestBody CheckinVerifyDTO dto) {
         return Result.success("签到成功", checkinService.verify(dto));
     }

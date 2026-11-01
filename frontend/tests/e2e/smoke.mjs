@@ -46,6 +46,8 @@ try {
   await login(page, BASE)
   await page.waitForTimeout(1500)
   check('登录并进入数据驾驶舱', await page.locator('text=欢迎回来').first().isVisible())
+  check('驾驶舱显示履约质量指标', await page.locator('text=预约通过率').first().isVisible())
+  check('驾驶舱提供使用率报表入口', await page.locator('text=使用率报表').first().isVisible())
 
   // 2. 预约管理列表有数据
   await page.goto(`${BASE}/reservation/list`, { waitUntil: 'networkidle' })

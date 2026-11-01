@@ -77,6 +77,14 @@ public class CheckinServiceImpl implements CheckinService {
     /** 超级管理员可查看核销码；教师等核销人只能现场输入核销码 */
     private static final String ROLE_SUPER_ADMIN = "SUPER_ADMIN";
 
+    /**
+     * 定时任务开关（默认开启）
+     *
+     * <p>字段上带默认值，保证纯单元测试直接调用定时方法时行为不变。</p>
+     */
+    @org.springframework.beans.factory.annotation.Value("${lab.schedule.auto-close-checkin:true}")
+    private boolean autoCloseEnabled = true;
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void createForReservation(LabReservation reservation) {
@@ -221,6 +229,26 @@ public class CheckinServiceImpl implements CheckinService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void rescheduleTimes(LabReservation reservation) {
+        if (reservation == null || reservation.getId() == null) {
+            return;
+        }
+        LabCheckin checkin = checkinMapper.selectOne(new LambdaQueryWrapper<LabCheckin>()
+                .eq(LabCheckin::getReservationId, reservation.getId())
+                .last("LIMIT 1"));
+        // 已签到/已完成/已取消的凭证不跟随改期（改期本身只允许在开始前，正常不会出现）
+        if (checkin == null
+                || CheckinStatus.of(checkin.getStatus()) != CheckinStatus.SIGN_IN_PENDING) {
+            return;
+        }
+        checkin.setReserveDate(reservation.getReserveDate());
+        checkin.setStartTime(reservation.getStartTime());
+        checkin.setEndTime(reservation.getEndTime());
+        checkinMapper.updateById(checkin);
+    }
+
+    @Override
     public IPage<CheckinVO> pageMine(IPage<CheckinVO> page, String status) {
         Long userId = SecurityUtil.getUserId();
         LambdaQueryWrapper<LabCheckin> wrapper = new LambdaQueryWrapper<LabCheckin>()
@@ -279,6 +307,9 @@ public class CheckinServiceImpl implements CheckinService {
     @Scheduled(cron = "0 */5 * * * ?")
     @Transactional(rollbackFor = Exception.class)
     public void autoCloseExpired() {
+        if (!autoCloseEnabled) {
+            return;
+        }
         LocalDateTime now = LocalDateTime.now();
         List<LabCheckin> list = checkinMapper.selectList(new LambdaQueryWrapper<LabCheckin>()
                 .in(LabCheckin::getStatus,

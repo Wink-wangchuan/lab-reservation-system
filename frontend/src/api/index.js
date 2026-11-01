@@ -94,9 +94,12 @@ export const repairDetail = (id) => request.get(`/repair/${id}`)
 export const repairDeviceOptions = () => request.get('/repair/device-options')
 
 // 预约
-export const reservationSubmit = (data) => request.post('/reservation/submit', data)
+export const reservationSubmit = (data, idempotencyKey) =>
+  request.post('/reservation/submit', data,
+    idempotencyKey ? { headers: { 'X-Idempotency-Key': idempotencyKey } } : undefined)
 export const reservationCancel = (id, reason) =>
   request.put(`/reservation/${id}/cancel`, null, { params: { reason } })
+export const reservationReschedule = (id, data) => request.put(`/reservation/${id}/reschedule`, data)
 export const reservationApprove = (data) => request.post('/reservation/approve', data)
 export const reservationMine = (params) => request.get('/reservation/mine', { params })
 export const reservationPage = (params) => request.get('/reservation/page', { params })
@@ -115,6 +118,11 @@ export const statsReservationStatus = () => request.get('/stats/reservation-stat
 export const statsReservationTrend = (days = 7) =>
   request.get('/stats/reservation-trend', { params: { days } })
 export const statsLabType = () => request.get('/stats/lab-type')
+// 履约质量指标（通过率 / 驳回率 / 爽约率 / 平均审批时长）
+export const statsQuality = () => request.get('/stats/quality')
+// 使用率报表：三页 Excel，必须走 axios 携带 JWT，用 blob 接收
+export const statsUsageExport = (days = 30) =>
+  request.get('/stats/usage-export', { params: { days }, responseType: 'blob' })
 
 // 实验室实时占用看板
 export const boardRealtime = () => request.get('/stats/realtime-board')

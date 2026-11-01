@@ -38,6 +38,10 @@ public enum ResultCode {
     SYSTEM_ERROR(50050, "系统内部异常"),
     CONCURRENT_MODIFIED(50001, "数据已被他人修改，请刷新后重试"),
 
+    /* ==================== 限流 / 幂等 ==================== */
+    TOO_MANY_REQUESTS(42900, "操作过于频繁，请稍后再试"),
+    DUPLICATE_REQUEST(42901, "请求已处理，请勿重复提交"),
+
     /* ==================== 预约相关 ==================== */
     RESERVATION_CONFLICT(50100, "预约时间冲突"),
     RESERVATION_LOCKED(50101, "实验室设备故障，禁止预约"),

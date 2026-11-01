@@ -126,6 +126,12 @@ public final class RedisKeyConstants {
     /** 登录失败计数（防暴力破解）：login:fail:{username} */
     public static final String LOGIN_FAIL = "login:fail:{}";
 
+    /** 接口限流计数：rate:{业务}:{主体}，按时间窗滑动计数 */
+    public static final String RATE_LIMIT = "rate:{}:{}";
+
+    /** 提交幂等标记：idem:{业务}:{客户端令牌} */
+    public static final String IDEMPOTENT = "idem:{}:{}";
+
     /** 天气实况缓存（按经纬度，10 分钟）：weather:now:{lon},{lat} */
     public static final String WEATHER_NOW = "weather:now:{}";
 
@@ -157,5 +163,15 @@ public final class RedisKeyConstants {
     /** 组装 AI 代办待澄清上下文键 */
     public static String aiActionPendingKey(Long userId) {
         return StrUtil.format(AI_ACTION_PENDING, userId);
+    }
+
+    /** 组装接口限流计数键 */
+    public static String rateLimitKey(String biz, String subject) {
+        return StrUtil.format(RATE_LIMIT, biz, subject);
+    }
+
+    /** 组装提交幂等标记键 */
+    public static String idempotentKey(String biz, String token) {
+        return StrUtil.format(IDEMPOTENT, biz, token);
     }
 }

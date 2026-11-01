@@ -33,12 +33,16 @@
             <el-tag :type="statusType(row.status)">{{ row.statusDesc }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="140" fixed="right" align="center">
+        <el-table-column label="操作" width="190" fixed="right" align="center">
           <template #default="{ row }">
             <el-button
               v-if="canCancel(row)"
               link type="danger" @click="doCancel(row)"
             >取消</el-button>
+            <el-button
+              v-if="canReschedule(row)"
+              link type="warning" @click="openReschedule(row)"
+            >改期</el-button>
             <el-button link type="primary" @click="viewDetail(row)">详情</el-button>
           </template>
         </el-table-column>
@@ -72,6 +76,7 @@
           </div>
           <div class="mine-card__actions">
             <el-button v-if="canCancel(row)" size="small" type="danger" plain @click="doCancel(row)">取消预约</el-button>
+            <el-button v-if="canReschedule(row)" size="small" type="warning" plain @click="openReschedule(row)">改期</el-button>
             <el-button size="small" type="primary" plain @click="viewDetail(row)">详情</el-button>
           </div>
         </div>
@@ -148,6 +153,47 @@
       </template>
     </el-dialog>
 
+    <!-- 预约改期：只允许换日期与时段，实验室固定 -->
+    <el-dialog v-model="rescheduleVisible" title="预约改期" width="520px" :close-on-click-modal="false">
+      <el-form ref="rescheduleFormRef" class="form-responsive" :model="rescheduleForm" :rules="rescheduleRules" label-width="88px">
+        <el-form-item label="实验室">
+          <el-input :model-value="rescheduleRow?.labName || ''" disabled />
+        </el-form-item>
+        <el-form-item label="新的日期" prop="reserveDate">
+          <el-date-picker
+            v-model="rescheduleForm.reserveDate"
+            type="date"
+            placeholder="选择日期"
+            value-format="YYYY-MM-DD"
+            style="width: 100%"
+            :disabled-date="(d) => d < new Date()"
+            @change="onRescheduleDateChange"
+          />
+        </el-form-item>
+        <el-form-item label="开放时段" prop="startTime">
+          <el-select v-model="rescheduleForm.startTime" placeholder="选择新的时段" style="width: 100%" @change="onRescheduleSlotChange">
+            <el-option
+              v-for="s in rescheduleSlots"
+              :key="s.id"
+              :label="slotLabel(s)"
+              :value="s.startTime"
+              :disabled="s.occupied"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-show="rescheduleForm.startTime" label="结束时间">
+          <el-input :model-value="hhmm(rescheduleForm.endTime)" disabled />
+        </el-form-item>
+        <el-form-item v-if="rescheduleForm.reserveDate && !rescheduleSlots.length" label=" ">
+          <span class="slot-empty-tip">该实验室当日无可预约时段，请更换日期</span>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="rescheduleVisible = false">取消</el-button>
+        <el-button type="primary" :loading="rescheduling" @click="doReschedule">确认改期</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 我的候补队列 -->
     <el-dialog v-model="waitlistVisible" title="我的候补" :width="isMobile ? '92%' : '660px'">
       <el-table v-loading="waitlistLoading" :data="waitlistRows" stripe border>
@@ -195,8 +241,8 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import {
-  reservationMine, reservationSubmit, reservationCancel, labList, slotAvailable,
-  waitlistJoin, waitlistMine, waitlistCancel
+  reservationMine, reservationSubmit, reservationCancel, reservationReschedule,
+  labList, slotAvailable, waitlistJoin, waitlistMine, waitlistCancel
 } from '@/api'
 
 // 窄屏（<=640px）用卡片列表替代宽表格，避免固定操作列把单号/用途挤出可视区
@@ -217,6 +263,13 @@ const submitting = ref(false)
 const labs = ref([])
 const availableSlots = ref([])
 const applyForm = ref({ labId: null, reserveDate: null, startTime: '', endTime: '', peopleCount: 1, purpose: '' })
+
+// 幂等令牌：同一份表单只允许成功提交一次，双击/网络重试不会生成两条预约
+// 不用 crypto.randomUUID（生产通过 http 访问属于非安全上下文，该方法不可用）
+const idempotencyKey = ref('')
+function newIdempotencyKey() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
 
 const applyRules = {
   labId: [{ required: true, message: '请选择实验室', trigger: 'change' }],
@@ -255,6 +308,13 @@ function canCancel(row) {
   return !Number.isNaN(startAt.getTime()) && Date.now() < startAt.getTime()
 }
 
+// 改期按钮的展示条件：待审核/已通过，且尚未开始（与后端校验保持一致）
+function canReschedule(row) {
+  if (row.status !== 'PENDING' && row.status !== 'APPROVED') return false
+  const startAt = new Date(`${String(row.reserveDate).slice(0, 10)}T${hhmm(row.startTime)}:00`)
+  return !Number.isNaN(startAt.getTime()) && Date.now() < startAt.getTime()
+}
+
 async function load() {
   loading.value = true
   try {
@@ -270,6 +330,7 @@ async function openApply() {
   const data = await labList()
   labs.value = data
   resetForm()
+  idempotencyKey.value = newIdempotencyKey()
   applyVisible.value = true
 }
 
@@ -362,10 +423,12 @@ function doSubmit() {
         endTime: slot.endTime,
         peopleCount: applyForm.value.peopleCount,
         purpose: applyForm.value.purpose
-      })
+      }, idempotencyKey.value)
       ElMessage.success('预约已提交，等待审批')
       applyVisible.value = false
       resetForm()
+      // 换一个令牌，下一次发起的预约仍是独立的一次提交
+      idempotencyKey.value = newIdempotencyKey()
       load()
     } catch {
       // 拦截器提示（如冲突/锁定）
@@ -431,6 +494,67 @@ function doCancelWait(row) {
     ElMessage.success('已退出候补队列')
     openWaitlist()
   }).catch(() => {})
+}
+
+/* ===== 改期 ===== */
+const rescheduleVisible = ref(false)
+const rescheduling = ref(false)
+const rescheduleFormRef = ref()
+const rescheduleRow = ref(null)
+const rescheduleSlots = ref([])
+const rescheduleForm = ref({ reserveDate: null, startTime: '', endTime: '' })
+
+const rescheduleRules = {
+  reserveDate: [{ required: true, message: '请选择日期', trigger: 'change' }],
+  startTime: [{ required: true, message: '请选择时段', trigger: 'change' }]
+}
+
+function openReschedule(row) {
+  rescheduleRow.value = row
+  rescheduleForm.value = { reserveDate: null, startTime: '', endTime: '' }
+  rescheduleSlots.value = []
+  rescheduleVisible.value = true
+  rescheduleFormRef.value?.clearValidate()
+}
+
+async function onRescheduleDateChange() {
+  rescheduleForm.value.startTime = ''
+  rescheduleForm.value.endTime = ''
+  rescheduleSlots.value = []
+  if (!rescheduleRow.value || !rescheduleForm.value.reserveDate) return
+  try {
+    rescheduleSlots.value = await slotAvailable(rescheduleRow.value.labId, rescheduleForm.value.reserveDate)
+  } catch {
+    rescheduleSlots.value = []
+  }
+}
+
+function onRescheduleSlotChange(startTime) {
+  const slot = rescheduleSlots.value.find((s) => s.startTime === startTime)
+  rescheduleForm.value.endTime = slot ? slot.endTime : ''
+}
+
+function doReschedule() {
+  rescheduleFormRef.value && rescheduleFormRef.value.validate(async (valid) => {
+    if (!valid || !rescheduleRow.value) return
+    const slot = rescheduleSlots.value.find((s) => s.startTime === rescheduleForm.value.startTime)
+    if (!slot) return
+    rescheduling.value = true
+    try {
+      await reservationReschedule(rescheduleRow.value.id, {
+        reserveDate: rescheduleForm.value.reserveDate,
+        startTime: rescheduleForm.value.startTime,
+        endTime: slot.endTime
+      })
+      ElMessage.success('改期成功')
+      rescheduleVisible.value = false
+      load()
+    } catch {
+      // 拦截器提示具体原因（闭馆 / 冲突 / 容量不足等）
+    } finally {
+      rescheduling.value = false
+    }
+  })
 }
 
 function viewDetail(row) {
@@ -566,7 +690,8 @@ onUnmounted(() => {
 
 .mine-card__actions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* 最多三个按钮：按可用宽度自动排 1~3 列，窄屏自动换行而不是挤成一条 */
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
   gap: 8px;
   padding-top: 2px;
 }

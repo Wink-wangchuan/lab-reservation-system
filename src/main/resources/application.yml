@@ -128,6 +128,24 @@ oper-log:
   retain-days: ${OPER_LOG_RETAIN_DAYS:90}
 
 # ============================================================
+# 定时任务开关
+# 每个任务独立开关，便于按环境裁剪：关闭后任务仍被调度但立即返回，
+# 不占用数据库连接，也不需要改代码或注释 @Scheduled。
+# ============================================================
+lab:
+  schedule:
+    # 已通过预约到点自动置为已完成
+    auto-complete-reservation: ${SCHEDULE_AUTO_COMPLETE:true}
+    # 开始前 30 分钟站内提醒
+    remind-reservation: ${SCHEDULE_REMIND:true}
+    # 签到单超时归档 + 爽约计数
+    auto-close-checkin: ${SCHEDULE_AUTO_CLOSE_CHECKIN:true}
+    # 候补队列自动递补
+    promote-waitlist: ${SCHEDULE_PROMOTE_WAITLIST:true}
+    # 操作日志按保留天数清理
+    purge-oper-log: ${SCHEDULE_PURGE_OPER_LOG:true}
+
+# ============================================================
 # 日志级别
 # ============================================================
 logging:

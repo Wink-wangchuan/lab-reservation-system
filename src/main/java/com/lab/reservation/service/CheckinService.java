@@ -43,6 +43,11 @@ public interface CheckinService {
     void cancelByReservation(Long reservationId, String reason);
 
     /**
+     * 预约改期后同步签到凭证的日期与时段（仅待签到的凭证需要同步）
+     */
+    void rescheduleTimes(LabReservation reservation);
+
+    /**
      * 我的签到记录分页
      */
     IPage<CheckinVO> pageMine(IPage<CheckinVO> page, String status);

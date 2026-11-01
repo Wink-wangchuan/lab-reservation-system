@@ -2,10 +2,13 @@ package com.lab.reservation.controller;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.lab.reservation.aop.Idempotent;
 import com.lab.reservation.aop.OperationLog;
+import com.lab.reservation.aop.RateLimit;
 import com.lab.reservation.common.PageVO;
 import com.lab.reservation.common.Result;
 import com.lab.reservation.dto.ApprovalDTO;
+import com.lab.reservation.dto.RescheduleDTO;
 import com.lab.reservation.dto.ReservationSubmitDTO;
 import com.lab.reservation.service.ReservationService;
 import com.lab.reservation.service.WaitlistService;
@@ -44,8 +47,20 @@ public class ReservationController {
     @PostMapping("/submit")
     @OperationLog(module = "预约管理", businessType = "insert", description = "提交实验室预约")
     @PreAuthorize("hasAuthority('reservation:submit')")
+    @RateLimit(limit = 5, seconds = 60)
+    @Idempotent
     public Result<ReservationVO> submit(@Valid @RequestBody ReservationSubmitDTO dto) {
         return Result.success("预约提交成功，等待审核", reservationService.submit(dto));
+    }
+
+    @Operation(summary = "预约改期（本人）")
+    @PutMapping("/{id}/reschedule")
+    @OperationLog(module = "预约管理", businessType = "update", description = "预约改期")
+    @PreAuthorize("hasAuthority('reservation:submit')")
+    @RateLimit(limit = 5, seconds = 60)
+    public Result<ReservationVO> reschedule(@PathVariable Long id,
+                                           @Valid @RequestBody RescheduleDTO dto) {
+        return Result.success("改期成功", reservationService.reschedule(id, dto));
     }
 
     @Operation(summary = "取消预约（本人）")
@@ -103,6 +118,7 @@ public class ReservationController {
     @PostMapping("/waitlist")
     @OperationLog(module = "预约管理", businessType = "insert", description = "加入候补队列")
     @PreAuthorize("hasAuthority('reservation:submit')")
+    @RateLimit(limit = 3, seconds = 60)
     public Result<WaitlistVO> joinWaitlist(@Valid @RequestBody ReservationSubmitDTO dto) {
         return Result.success("已加入候补队列", waitlistService.join(dto));
     }

@@ -3,6 +3,21 @@
     <!-- 欢迎横幅 + 快捷入口 -->
     <WelcomeBanner />
 
+    <!-- 运维工具条：使用率报表按周期导出，仅管理角色可见 -->
+    <div v-if="isOperator" class="dash-toolbar">
+      <span class="chart-chip">统计区间内的有效预约（已通过 + 已完成）</span>
+      <div class="dash-toolbar__right">
+        <el-select v-model="exportDays" size="small" style="width: 118px" @change="doUsageExport">
+          <el-option :value="7" label="近 7 天" />
+          <el-option :value="30" label="近 30 天" />
+          <el-option :value="90" label="近 90 天" />
+        </el-select>
+        <el-button size="small" type="success" :loading="exporting" @click="doUsageExport">
+          <el-icon><Download /></el-icon> 使用率报表
+        </el-button>
+      </div>
+    </div>
+
     <!-- 概览指标卡 -->
     <div class="stat-grid">
       <StatCard
@@ -81,11 +96,15 @@ import TodoPanel from './components/TodoPanel.vue'
 import ChartBox from './components/ChartBox.vue'
 import {
   statsOverview, statsHotLabs, statsReservationStatus,
-  statsReservationTrend, statsLabType
+  statsReservationTrend, statsLabType, statsQuality, statsUsageExport
 } from '@/api'
 
 const loading = ref(true)
 const overview = ref({})
+// 履约质量指标：通过率 / 驳回率 / 爽约率 / 平均审批时长
+const quality = ref({})
+const exportDays = ref(30)
+const exporting = ref(false)
 const userStore = useUserStore()
 
 // 随视口宽度自适应图表高度，保证窄屏下图表仍可读、不畸变
@@ -140,6 +159,7 @@ const isOperator = computed(() =>
 
 const cards = computed(() => {
   const o = overview.value
+  const q = quality.value
   const all = [
     { key: 'lab', label: '实验室总数', value: o.labTotal ?? 0, icon: 'OfficeBuilding', bg: 'linear-gradient(135deg,#5b8cff,#7a5bff)' },
     { key: 'device', label: '设备总数', value: o.deviceTotal ?? 0, icon: 'Monitor', bg: 'linear-gradient(135deg,#22c1c3,#35e0a1)' },
@@ -148,7 +168,11 @@ const cards = computed(() => {
     { key: 'today', label: '今日预约', value: o.todayReservation ?? 0, icon: 'Sunny', bg: 'linear-gradient(135deg,#ffb84d,#ff8a5c)' },
     { key: 'pending', label: '待审核预约', value: o.pendingApproval ?? 0, icon: 'BellFilled', bg: 'linear-gradient(135deg,#5b8cff,#35b3e0)', adminOnly: true },
     { key: 'repair', label: '未完成报修', value: o.pendingRepair ?? 0, icon: 'Tools', bg: 'linear-gradient(135deg,#ff6b81,#ff8a5c)', adminOnly: true },
-    { key: 'fault', label: '故障设备', value: o.faultDevice ?? 0, icon: 'WarnTriangleFilled', bg: 'linear-gradient(135deg,#ff4d6d,#f77b6f)', adminOnly: true }
+    { key: 'fault', label: '故障设备', value: o.faultDevice ?? 0, icon: 'WarnTriangleFilled', bg: 'linear-gradient(135deg,#ff4d6d,#f77b6f)', adminOnly: true },
+    { key: 'approvalRate', label: '预约通过率', value: q.approvalRate ?? 0, suffix: '%', icon: 'CircleCheck', bg: 'linear-gradient(135deg,#35e0a1,#22c1c3)', adminOnly: true },
+    { key: 'rejectRate', label: '预约驳回率', value: q.rejectRate ?? 0, suffix: '%', icon: 'CircleClose', bg: 'linear-gradient(135deg,#ff8a5c,#ff4d6d)', adminOnly: true },
+    { key: 'noShowRate', label: '爽约率', value: q.noShowRate ?? 0, suffix: '%', icon: 'AlarmClock', bg: 'linear-gradient(135deg,#ffb84d,#ff8a5c)', adminOnly: true },
+    { key: 'avgApproval', label: '平均审批时长', value: q.avgApprovalMinutes ?? 0, suffix: '分钟', icon: 'Timer', bg: 'linear-gradient(135deg,#5b8cff,#8f6bff)', adminOnly: true }
   ]
   return all.filter((c) => !c.adminOnly || isOperator.value)
 })
@@ -182,14 +206,16 @@ watch([compact, isDark], rebuildCharts)
 async function loadAll() {
   loading.value = true
   try {
-    const [ov, trend, status, hot, types] = await Promise.all([
+    const [ov, trend, status, hot, types, q] = await Promise.all([
       statsOverview(),
       statsReservationTrend(7),
       statsReservationStatus(),
       statsHotLabs(10),
-      statsLabType()
+      statsLabType(),
+      statsQuality()
     ])
     overview.value = ov
+    quality.value = q || {}
     rawTrend.value = trend
     rawStatus.value = status
     rawHot.value = hot
@@ -197,6 +223,45 @@ async function loadAll() {
     rebuildCharts()
   } finally {
     loading.value = false
+  }
+}
+
+/** 使用率报表导出：仍走 axios 以携带 JWT，业务异常时后端返回 JSON 而不是 xlsx */
+async function doUsageExport() {
+  exporting.value = true
+  try {
+    const res = await statsUsageExport(exportDays.value)
+    const blob = res.data
+    if (blob.type && blob.type.includes('json')) {
+      const body = JSON.parse(await blob.text())
+      ElMessage.error(body.message || '导出失败')
+      return
+    }
+    const fileName = parseFileName(res.headers['content-disposition']) || '使用率报表.xlsx'
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = fileName
+    a.click()
+    URL.revokeObjectURL(url)
+    ElMessage.success('报表已导出')
+  } catch {
+    // 网络 / 权限错误已由响应拦截器提示
+  } finally {
+    exporting.value = false
+  }
+}
+
+/** 后端以 ISO-8859-1 字节承载中文文件名，需要按字节还原为 UTF-8 */
+function parseFileName(disposition) {
+  if (!disposition) return ''
+  const m = /filename\*?=(?:UTF-8'')?["']?([^"';]+)/i.exec(disposition)
+  if (!m) return ''
+  try {
+    const bytes = Uint8Array.from(m[1], (c) => c.charCodeAt(0))
+    return new TextDecoder('utf-8').decode(bytes)
+  } catch {
+    return ''
   }
 }
 
@@ -373,6 +438,23 @@ onMounted(loadAll)
   padding: 2px 8px;
   border-radius: 999px;
   white-space: nowrap;
+}
+
+/* 运维工具条：说明文字靠左，导出控件靠右；窄屏自动换行不溢出 */
+.dash-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 0 2px;
+}
+
+.dash-toolbar__right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 // 窄屏环形图图例：普通流式排版，换行时只会向下撑高卡片，不会覆盖图表

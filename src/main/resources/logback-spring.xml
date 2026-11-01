@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    日志输出格式统一配置
+
+    结构化要点：
+      1. 固定字段顺序：时间 / 级别 / 链路ID / 类名 / 消息，便于 grep 与日志采集解析；
+      2. [%X{traceId:-}] 由 TraceIdFilter 写入 MDC，同一次请求的所有日志可用同一 ID 串联；
+      3. 只输出到控制台：服务器由 systemd 的 StandardOutput=append 落盘到 logs/app.log，
+         避免应用内再写一份同名文件造成双写与轮转冲突。
+-->
+<configuration>
+
+    <property name="LOG_PATTERN"
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%X{traceId:-}] %logger{40} - %msg%n"/>
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+
+</configuration>

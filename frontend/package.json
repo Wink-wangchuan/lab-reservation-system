@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier --write \"src/**/*.{js,vue,scss}\"",
+    "size": "node scripts/size-report.mjs",
     "e2e": "node tests/e2e/smoke.mjs"
   },
   "dependencies": {

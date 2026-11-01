@@ -6,11 +6,13 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lab.reservation.common.ResultCode;
 import com.lab.reservation.constant.RedisKeyConstants;
 import com.lab.reservation.entity.Device;
 import com.lab.reservation.entity.LabInfo;
 import com.lab.reservation.entity.LabReservation;
 import com.lab.reservation.enums.ReservationStatus;
+import com.lab.reservation.exception.BusinessException;
 import com.lab.reservation.mapper.DeviceMapper;
 import com.lab.reservation.mapper.LabInfoMapper;
 import com.lab.reservation.mapper.LabReservationMapper;
@@ -20,14 +22,26 @@ import com.lab.reservation.vo.BoardSummaryVO;
 import com.lab.reservation.vo.HotLabVO;
 import com.lab.reservation.vo.LabBoardVO;
 import com.lab.reservation.vo.NameValueVO;
+import com.lab.reservation.vo.StatsMetricsVO;
 import com.lab.reservation.vo.StatsOverviewVO;
 import com.lab.reservation.vo.TrendPointVO;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.CellStyle;
+import org.apache.poi.ss.usermodel.FillPatternType;
+import org.apache.poi.ss.usermodel.Font;
+import org.apache.poi.ss.usermodel.IndexedColors;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.xssf.streaming.SXSSFWorkbook;
 import org.springframework.stereotype.Service;
 
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ZSetOperations;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -73,6 +87,8 @@ public class StatisticsServiceImpl implements StatisticsService {
     private static final TypeReference<List<TrendPointVO>> TREND_LIST_TYPE = new TypeReference<>() {
     };
     private static final TypeReference<List<LabBoardVO>> BOARD_LIST_TYPE = new TypeReference<>() {
+    };
+    private static final TypeReference<StatsMetricsVO> METRICS_TYPE = new TypeReference<>() {
     };
 
     private final LabInfoMapper labInfoMapper;
@@ -330,6 +346,170 @@ public class StatisticsServiceImpl implements StatisticsService {
         vo.setCurrentStartTime(reservation.getStartTime());
         vo.setCurrentEndTime(reservation.getEndTime());
         vo.setPurpose(reservation.getPurpose());
+    }
+
+    @Override
+    public StatsMetricsVO quality() {
+        return cached("quality", METRICS_TYPE, this::loadQuality);
+    }
+
+    /**
+     * 使用率报表导出：三页工作表一次性输出，供教务/实验室管理做周期复盘
+     *
+     * <p>与预约明细导出同样使用 SXSSF 流式写盘；报表本身是聚合结果，行数很少，
+     * 但这套写法可以避免以后改成「明细 + 聚合」混合报表时再改结构。</p>
+     */
+    @Override
+    public void exportUsageExcel(HttpServletResponse response, int days) {
+        int span = Math.min(Math.max(days, 1), 365);
+        LocalDate start = LocalDate.now().minusDays(span - 1L);
+        String period = start + " ~ " + LocalDate.now();
+
+        List<Map<String, Object>> labUsage = statsMapper.selectLabUsage(start);
+        List<Map<String, Object>> slotUsage = statsMapper.selectSlotUsage(start);
+        List<Map<String, Object>> teacherUsage = statsMapper.selectTeacherUsage(start);
+
+        try (SXSSFWorkbook workbook = new SXSSFWorkbook(100)) {
+            CellStyle headerStyle = headerStyle(workbook);
+            buildLabUsageSheet(workbook, headerStyle, labUsage, period);
+            buildSlotUsageSheet(workbook, headerStyle, slotUsage, period);
+            buildTeacherUsageSheet(workbook, headerStyle, teacherUsage, period);
+
+            response.setContentType(
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            response.setCharacterEncoding("UTF-8");
+            String fileName = new String(
+                    ("使用率报表_" + span + "天_" + LocalDate.now() + ".xlsx")
+                            .getBytes(StandardCharsets.UTF_8),
+                    StandardCharsets.ISO_8859_1);
+            response.setHeader("Content-Disposition", "attachment; filename=" + fileName);
+            workbook.write(response.getOutputStream());
+            response.getOutputStream().flush();
+        } catch (IOException e) {
+            throw new BusinessException(ResultCode.EXPORT_ERROR, "导出失败：" + e.getMessage());
+        }
+    }
+
+    /**
+     * 履约质量回源：比率在 Java 侧计算，SQL 只负责取计数，避免除零与精度问题散落在 SQL 里
+     */
+    private StatsMetricsVO loadQuality() {
+        StatsMetricsVO vo = statsMapper.selectQuality();
+        if (vo == null) {
+            vo = new StatsMetricsVO();
+        }
+        long approved = vo.getApprovedTotal() == null ? 0 : vo.getApprovedTotal();
+        long rejected = vo.getRejectedTotal() == null ? 0 : vo.getRejectedTotal();
+        long noShow = vo.getNoShowTotal() == null ? 0 : vo.getNoShowTotal();
+        long checkin = vo.getCheckinTotal() == null ? 0 : vo.getCheckinTotal();
+        long reviewed = approved + rejected;
+        vo.setApprovalRate(rate(approved, reviewed));
+        vo.setRejectRate(rate(rejected, reviewed));
+        vo.setNoShowRate(rate(noShow, checkin));
+        vo.setAvgApprovalMinutes(vo.getAvgApprovalMinutes() == null ? 0.0 : vo.getAvgApprovalMinutes());
+        return vo;
+    }
+
+    /** 百分比保留一位小数，分母为 0 时返回 0 */
+    private double rate(long numerator, long denominator) {
+        if (denominator <= 0) {
+            return 0.0;
+        }
+        return Math.round(numerator * 1000.0 / denominator) / 10.0;
+    }
+
+    /* ==================== 使用率报表工作表 ==================== */
+
+    private CellStyle headerStyle(SXSSFWorkbook workbook) {
+        CellStyle style = workbook.createCellStyle();
+        Font font = workbook.createFont();
+        font.setBold(true);
+        font.setColor(IndexedColors.WHITE.getIndex());
+        style.setFont(font);
+        style.setFillForegroundColor(IndexedColors.ROYAL_BLUE.getIndex());
+        style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+        return style;
+    }
+
+    private void buildLabUsageSheet(SXSSFWorkbook workbook, CellStyle style,
+                                    List<Map<String, Object>> rows, String period) {
+        Sheet sheet = workbook.createSheet("实验室使用率");
+        String[] headers = {"实验室", "有效预约场次", "累计使用人数", "累计使用时长(小时)", "场均人数"};
+        writeHeader(sheet, headers, new int[]{24, 14, 16, 20, 12}, style);
+        int index = 1;
+        for (Map<String, Object> row : rows) {
+            long total = longOf(row.get("total"));
+            long minutes = longOf(row.get("minutes"));
+            long people = longOf(row.get("people"));
+            Row excelRow = sheet.createRow(index++);
+            excelRow.createCell(0).setCellValue(stringOf(row.get("labName")));
+            excelRow.createCell(1).setCellValue(total);
+            excelRow.createCell(2).setCellValue(people);
+            excelRow.createCell(3).setCellValue(Math.round(minutes / 6.0) / 10.0);
+            excelRow.createCell(4).setCellValue(total == 0 ? 0 : Math.round(people * 10.0 / total) / 10.0);
+        }
+        appendNote(sheet, index, "统计区间：" + period);
+    }
+
+    private void buildSlotUsageSheet(SXSSFWorkbook workbook, CellStyle style,
+                                     List<Map<String, Object>> rows, String period) {
+        Sheet sheet = workbook.createSheet("时段热度");
+        String[] headers = {"时段", "有效预约场次", "累计使用人数"};
+        writeHeader(sheet, headers, new int[]{20, 16, 16}, style);
+        int index = 1;
+        for (Map<String, Object> row : rows) {
+            Row excelRow = sheet.createRow(index++);
+            excelRow.createCell(0).setCellValue(
+                    stringOf(row.get("startTime")) + " - " + stringOf(row.get("endTime")));
+            excelRow.createCell(1).setCellValue(longOf(row.get("total")));
+            excelRow.createCell(2).setCellValue(longOf(row.get("people")));
+        }
+        appendNote(sheet, index, "统计区间：" + period);
+    }
+
+    private void buildTeacherUsageSheet(SXSSFWorkbook workbook, CellStyle style,
+                                        List<Map<String, Object>> rows, String period) {
+        Sheet sheet = workbook.createSheet("审批绩效");
+        String[] headers = {"审批人", "通过数", "驳回数", "处理总数", "平均响应时长(分钟)"};
+        writeHeader(sheet, headers, new int[]{16, 12, 12, 14, 20}, style);
+        int index = 1;
+        for (Map<String, Object> row : rows) {
+            Row excelRow = sheet.createRow(index++);
+            excelRow.createCell(0).setCellValue(stringOf(row.get("teacherName")));
+            excelRow.createCell(1).setCellValue(longOf(row.get("approved")));
+            excelRow.createCell(2).setCellValue(longOf(row.get("rejected")));
+            excelRow.createCell(3).setCellValue(longOf(row.get("total")));
+            excelRow.createCell(4).setCellValue(numberOf(row.get("avgMinutes")));
+        }
+        appendNote(sheet, index, "统计区间：" + period);
+    }
+
+    private void writeHeader(Sheet sheet, String[] headers, int[] widths, CellStyle style) {
+        Row row = sheet.createRow(0);
+        for (int i = 0; i < headers.length; i++) {
+            Cell cell = row.createCell(i);
+            cell.setCellValue(headers[i]);
+            cell.setCellStyle(style);
+            // 固定列宽：SXSSF 下 autoSizeColumn 需要缓存全部行，会抵消流式写入优势
+            sheet.setColumnWidth(i, widths[i] * 256);
+        }
+    }
+
+    private void appendNote(Sheet sheet, int rowIndex, String note) {
+        Row row = sheet.createRow(rowIndex + 1);
+        row.createCell(0).setCellValue(note);
+    }
+
+    private long longOf(Object value) {
+        return value instanceof Number number ? number.longValue() : 0L;
+    }
+
+    private double numberOf(Object value) {
+        return value instanceof Number number ? number.doubleValue() : 0.0;
+    }
+
+    private String stringOf(Object value) {
+        return value == null ? "" : String.valueOf(value);
     }
 
     // ==================== 缓存读写 ====================

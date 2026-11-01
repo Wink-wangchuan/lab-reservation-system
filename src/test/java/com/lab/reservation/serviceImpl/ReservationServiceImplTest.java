@@ -2,6 +2,7 @@ package com.lab.reservation.serviceImpl;
 
 import com.lab.reservation.common.ResultCode;
 import com.lab.reservation.dto.ApprovalDTO;
+import com.lab.reservation.dto.RescheduleDTO;
 import com.lab.reservation.dto.ReservationSubmitDTO;
 import com.lab.reservation.entity.Device;
 import com.lab.reservation.entity.LabApproval;
@@ -572,6 +573,122 @@ class ReservationServiceImplTest {
             reservationService.cancel(1L, "时间已过，撤回");
 
             assertEquals(ReservationStatus.CANCELLED.name(), stale.getStatus());
+        }
+    }
+
+    // ==================== 设备占用与改期 ====================
+
+    @Nested
+    @DisplayName("设备占用与改期")
+    class DeviceAndReschedule {
+
+        @Test
+        @DisplayName("所选设备已被同时段其他预约占用时拒绝提交")
+        void deviceAlreadyOccupied() {
+            when(labInfoMapper.selectById(LAB_ID)).thenReturn(openLab(60));
+            when(labTimeSlotMapper.selectList(any())).thenReturn(List.of(slot(8, 0, 9, 40)));
+            when(deviceMapper.selectFaultDevicesByLabId(LAB_ID)).thenReturn(List.of());
+
+            LabReservation existing = otherReservation(5);
+            existing.setUseDeviceIds("201,202");
+            existing.setReservationNo("RSV20260101000000EEEE");
+            when(reservationMapper.selectConflictingReservations(
+                    any(), any(), any(), any(), any(), any())).thenReturn(List.of(existing));
+
+            Device device = new Device();
+            device.setId(201L);
+            device.setDeviceName("示波器");
+            device.setLabId(LAB_ID);
+            device.setFaultStatus(0);
+            when(deviceMapper.selectBatchIds(any())).thenReturn(List.of(device));
+
+            ReservationSubmitDTO dto = validDto();
+            dto.setPeopleCount(10);
+            dto.setUseDeviceIds(List.of(201L));
+
+            BusinessException e = assertThrows(BusinessException.class,
+                    () -> reservationService.submit(dto));
+
+            assertEquals(ResultCode.RESERVATION_CONFLICT.getCode(), e.getCode());
+            assertTrue(e.getMessage().contains("示波器"));
+            verify(reservationMapper, never()).insert(any(LabReservation.class));
+        }
+
+        @Test
+        @DisplayName("本人待审核预约可以改期，日期时段被改写且提醒标记重置")
+        void rescheduleOwnPending() {
+            LabReservation mine = pendingReservation(STUDENT_ID);
+            when(reservationMapper.lockReservationRow(1L)).thenReturn(1L);
+            when(reservationMapper.selectById(1L)).thenReturn(mine);
+            when(labInfoMapper.selectById(LAB_ID)).thenReturn(openLab(60));
+            // 新时段 10:00-11:40 落在 09:00-12:00 这一开放时段内
+            when(labTimeSlotMapper.selectList(any())).thenReturn(List.of(slot(9, 0, 12, 0)));
+            when(deviceMapper.selectFaultDevicesByLabId(LAB_ID)).thenReturn(List.of());
+            when(reservationMapper.selectConflictingReservations(
+                    any(), any(), any(), any(), any(), any())).thenReturn(List.of());
+            when(roleMapper.selectRoleCodesByUserId(STUDENT_ID)).thenReturn(List.of("STUDENT"));
+            when(roleMapper.selectUserIdsByPermission(any())).thenReturn(List.of());
+
+            RescheduleDTO dto = new RescheduleDTO();
+            dto.setReserveDate(LocalDate.now().plusDays(2));
+            dto.setStartTime(LocalTime.of(10, 0));
+            dto.setEndTime(LocalTime.of(11, 40));
+
+            ReservationVO vo = reservationService.reschedule(1L, dto);
+
+            assertEquals(LocalDate.now().plusDays(2), mine.getReserveDate());
+            assertEquals(LocalTime.of(10, 0), mine.getStartTime());
+            assertEquals(0, mine.getReminderSent(), "改期后必须重置提醒标记");
+            verify(reservationMapper).updateById(mine);
+            verify(statisticsService).evictStatCache();
+            verify(noticeService).push(any(), any(), any(), any(), any());
+            // 待审核单没有签到凭证，不需要同步核销时段
+            verify(checkinService, never()).rescheduleTimes(any());
+            assertEquals("待审核", vo.getStatusDesc());
+        }
+
+        @Test
+        @DisplayName("已通过的预约改期后同步签到凭证时段")
+        void rescheduleApprovedSyncsCheckin() {
+            LabReservation mine = pendingReservation(STUDENT_ID);
+            mine.setStatus(ReservationStatus.APPROVED.name());
+            when(reservationMapper.lockReservationRow(1L)).thenReturn(1L);
+            when(reservationMapper.selectById(1L)).thenReturn(mine);
+            when(labInfoMapper.selectById(LAB_ID)).thenReturn(openLab(60));
+            when(labTimeSlotMapper.selectList(any())).thenReturn(List.of(slot(9, 0, 12, 0)));
+            when(deviceMapper.selectFaultDevicesByLabId(LAB_ID)).thenReturn(List.of());
+            when(reservationMapper.selectConflictingReservations(
+                    any(), any(), any(), any(), any(), any())).thenReturn(List.of());
+            when(roleMapper.selectRoleCodesByUserId(STUDENT_ID)).thenReturn(List.of("STUDENT"));
+            when(roleMapper.selectUserIdsByPermission(any())).thenReturn(List.of());
+
+            RescheduleDTO dto = new RescheduleDTO();
+            dto.setReserveDate(LocalDate.now().plusDays(2));
+            dto.setStartTime(LocalTime.of(10, 0));
+            dto.setEndTime(LocalTime.of(11, 40));
+
+            reservationService.reschedule(1L, dto);
+
+            verify(checkinService).rescheduleTimes(mine);
+        }
+
+        @Test
+        @DisplayName("不能改期他人的预约")
+        void cannotRescheduleOthers() {
+            LabReservation other = pendingReservation(OTHER_STUDENT_ID);
+            when(reservationMapper.lockReservationRow(1L)).thenReturn(1L);
+            when(reservationMapper.selectById(1L)).thenReturn(other);
+
+            RescheduleDTO dto = new RescheduleDTO();
+            dto.setReserveDate(LocalDate.now().plusDays(2));
+            dto.setStartTime(LocalTime.of(10, 0));
+            dto.setEndTime(LocalTime.of(11, 40));
+
+            BusinessException e = assertThrows(BusinessException.class,
+                    () -> reservationService.reschedule(1L, dto));
+
+            assertEquals(ResultCode.FORBIDDEN.getCode(), e.getCode());
+            verify(reservationMapper, never()).updateById(any(LabReservation.class));
         }
     }
 

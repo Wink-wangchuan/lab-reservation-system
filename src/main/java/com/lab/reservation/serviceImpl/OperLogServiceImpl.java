@@ -37,6 +37,10 @@ public class OperLogServiceImpl implements OperLogService {
     @Value("${oper-log.retain-days:90}")
     private int retainDays;
 
+    /** 定时清理开关（默认开启） */
+    @Value("${lab.schedule.purge-oper-log:true}")
+    private boolean purgeEnabled = true;
+
     @Override
     @Async  // 异步落库，不阻塞主业务
     public void saveLog(SysOperLog log) {
@@ -52,6 +56,9 @@ public class OperLogServiceImpl implements OperLogService {
     @Scheduled(cron = "0 30 3 * * ?")
     @Transactional(rollbackFor = Exception.class)
     public void purgeExpiredLogs() {
+        if (!purgeEnabled) {
+            return;
+        }
         int days = Math.max(7, retainDays);
         LocalDateTime before = LocalDateTime.now().minusDays(days);
         int deleted = operLogMapper.delete(new LambdaQueryWrapper<SysOperLog>()

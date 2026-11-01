@@ -27,6 +27,11 @@ public interface ReservationService {
     void cancel(Long reservationId, String reason);
 
     /**
+     * 预约改期（本人）：仅调整日期与时段，重新走一遍完整校验
+     */
+    ReservationVO reschedule(Long reservationId, com.lab.reservation.dto.RescheduleDTO dto);
+
+    /**
      * 审批预约（教师）：APPROVE通过 / REJECT驳回，写入审批流水
      */
     ReservationVO approve(ApprovalDTO dto);

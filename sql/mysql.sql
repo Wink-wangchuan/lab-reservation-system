@@ -191,6 +191,7 @@ CREATE TABLE lab_reservation (
     KEY idx_reserve_scope (lab_id, reserve_date, start_time, end_time),
     KEY idx_reserve_date_status (reserve_date, status),
     KEY idx_reserve_student (student_id),
+    KEY idx_reserve_teacher (teacher_id, reserve_date),
     KEY idx_reserve_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='预约单表(含状态机)';
 
@@ -349,6 +350,7 @@ CREATE TABLE lab_waitlist (
     update_time  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (id),
     KEY idx_wait_scope (lab_id, reserve_date, status),
+    KEY idx_wait_status_time (status, create_time),
     KEY idx_wait_user (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='实验室候补队列表';
 
@@ -1475,7 +1477,34 @@ INSERT INTO ai_knowledge (id, category, title, keywords, content, priority, stat
 2. 到结束时刻仍未签到的签到单会自动置为「已过期」，同时记一次爽约。
 3. 连续爽约满 3 次会被限制预约 7 天，提交预约时会提示限制截止时间。
 4. 按时到场签到会清零连续爽约次数并解除限制。
-5. 爽约记录不影响已有预约的审批与签到。', 62, 1)
+5. 爽约记录不影响已有预约的审批与签到。', 62, 1),
+
+-- 30066 预约改期 -------------------------------------------------------------
+(30066, '预约流程', '预约提交后还能改时间吗',
+ '改期,换时间,换时段,改时间,调整时间,调课,临时有事,推迟,提前,时间冲突',
+ '待审核或已通过的预约在开始前可以改期：
+1. 入口：我的预约列表里点「改期」，重新选择日期与开放时段。
+2. 改期会按新时段重新校验开放时段、闭馆日期、设备故障、整间独占、同人重复与剩余人数，不通过会提示具体原因。
+3. 已通过的预约改期后，签到核销码的时段会同步更新，旧时段不再占用容量。
+4. 预约开始或结束之后不能再改期，只能重新预约。
+5. 改期只能换日期与时段，换实验室需要取消后重新提交。', 66, 1),
+
+-- 30067 设备占用冲突 ---------------------------------------------------------
+(30067, '预约流程', '预约时选了设备，会不会和别人的预约冲突',
+ '设备,设备冲突,设备占用,同一台设备,抢设备,设备被占用,选设备,设备编号',
+ '设备维度也做了占用校验：
+1. 提交预约时如果勾选了具体设备，系统会检查同实验室、同日期、同时段内该设备是否已被其他有效预约占用。
+2. 被占用时会提示「所选设备在该时段已被其他预约占用（单号 …）」，需要更换设备或时段。
+3. 实验室存在故障设备时整间实验室仍会被锁定，不能通过换设备绕过。
+4. 改期时同样会校验设备占用，避免把设备带到冲突时段。', 63, 1),
+
+-- 30068 使用率报表 -----------------------------------------------------------
+(30068, '数据统计', '使用率报表在哪里导出',
+ '报表,导出,使用率,统计报表,Excel,利用率,审批绩效,时段热度,实验室使用情况',
+ '使用率报表用于周期性复盘，入口在「数据驾驶舱」：
+1. 点右上角「使用率报表」，默认导出最近 30 天的有效预约（已通过 + 已完成）。
+2. 报表包含三页：实验室使用率（场次、人数、时长、场均人数）、时段热度（哪些时段最抢手）、审批绩效（各审批人通过/驳回数量与平均响应时长）。
+3. 报表为聚合结果，行数少，导出很快；需要明细请用预约管理里的「导出 Excel」。', 58, 1)
 ON DUPLICATE KEY UPDATE
     category = VALUES(category),
     title = VALUES(title),

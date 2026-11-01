@@ -4,6 +4,7 @@ import com.lab.reservation.vo.BoardSummaryVO;
 import com.lab.reservation.vo.HotLabVO;
 import com.lab.reservation.vo.LabBoardVO;
 import com.lab.reservation.vo.NameValueVO;
+import com.lab.reservation.vo.StatsMetricsVO;
 import com.lab.reservation.vo.StatsOverviewVO;
 import com.lab.reservation.vo.TrendPointVO;
 
@@ -56,4 +57,14 @@ public interface StatisticsService {
 
     /** 实时占用汇总指标（由看板明细聚合） */
     BoardSummaryVO realtimeSummary();
+
+    /** 预约履约质量指标：通过率 / 驳回率 / 爽约率 / 平均审批时长 */
+    StatsMetricsVO quality();
+
+    /**
+     * 使用率报表导出（Excel 三页：实验室 / 时段 / 审批人）
+     *
+     * @param days 统计最近多少天的有效预约
+     */
+    void exportUsageExcel(jakarta.servlet.http.HttpServletResponse response, int days);
 }

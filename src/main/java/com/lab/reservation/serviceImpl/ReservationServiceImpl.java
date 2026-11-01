@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.lab.reservation.common.OccupancyCalculator;
 import com.lab.reservation.common.ResultCode;
 import com.lab.reservation.dto.ApprovalDTO;
+import com.lab.reservation.dto.RescheduleDTO;
 import com.lab.reservation.dto.ReservationSubmitDTO;
 import com.lab.reservation.entity.Device;
 import com.lab.reservation.entity.LabApproval;
@@ -105,6 +106,18 @@ public class ReservationServiceImpl implements ReservationService {
     /** 预约开始前多少分钟提醒 */
     private static final int REMIND_MINUTES = 30;
 
+    /**
+     * 定时任务开关（默认开启，可在配置中按需关闭）
+     *
+     * <p>用字段初始化值而非仅靠 @Value，保证纯单元测试环境（不加载容器）里
+     * 直接调用定时方法时仍是「开启」语义，不会因为注入缺失而静默跳过。</p>
+     */
+    @org.springframework.beans.factory.annotation.Value("${lab.schedule.auto-complete-reservation:true}")
+    private boolean autoCompleteEnabled = true;
+
+    @org.springframework.beans.factory.annotation.Value("${lab.schedule.remind-reservation:true}")
+    private boolean remindEnabled = true;
+
     /** 可审批教师提交预约的角色（教师本人不能审批教师单） */
     private static final String ROLE_SUPER_ADMIN = "SUPER_ADMIN";
     private static final String ROLE_LAB_ADMIN = "LAB_ADMIN";
@@ -198,7 +211,10 @@ public class ReservationServiceImpl implements ReservationService {
                             + "，状态 " + ReservationStatus.of(first.getStatus()).getDesc() + "）");
         }
 
-        // 4.3 已占用人数取「区间内的并发峰值」：互相错开的两单不应被简单相加
+        // 4.3 设备占用冲突：同一台设备在同一时段只能被一个预约使用
+        assertDevicesFree(overlapping, dto.getUseDeviceIds());
+
+        // 4.4 已占用人数取「区间内的并发峰值」：互相错开的两单不应被简单相加
         int booked = OccupancyCalculator.peakPeople(overlapping, dto.getStartTime(), dto.getEndTime());
         assertRemaining("实验室容量", labCapacity, booked, dto.getPeopleCount());
         if (slotLimit > 0) {
@@ -286,6 +302,126 @@ public class ReservationServiceImpl implements ReservationService {
     }
 
     /**
+     * 预约改期（本人）：只调整日期与时段，重新走一遍完整校验
+     *
+     * <p>改期本质上是「换一个时段占用容量」，因此不能直接改字段了事：
+     * 开放时段、闭馆日历、设备故障、整间独占、同人重复、容量与设备占用
+     * 全部要按新时段重算，并把旧时段占用的容量释放掉（更新即释放）。
+     * 若原预约已通过，签到凭证的时段也要同步，否则核销窗口会落在旧时间上。</p>
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ReservationVO reschedule(Long reservationId, RescheduleDTO dto) {
+        LoginUser current = SecurityUtil.getLoginUser();
+        // 先锁预约单行：避免与取消/审批并发，导致改期与状态流转互相覆盖
+        reservationMapper.lockReservationRow(reservationId);
+        LabReservation reservation = reservationMapper.selectById(reservationId);
+        if (reservation == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "预约单不存在");
+        }
+        if (!reservation.getStudentId().equals(current.getUserId())) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "只能改期本人的预约");
+        }
+        ReservationStatus from = ReservationStatus.of(reservation.getStatus());
+        if (from != ReservationStatus.PENDING && from != ReservationStatus.APPROVED) {
+            throw new BusinessException(ResultCode.RESERVATION_STATUS_ERROR,
+                    "仅待审核或已通过的预约可改期，当前状态["
+                            + (from == null ? "未知" : from.getDesc()) + "]");
+        }
+        LocalDateTime originStart =
+                LocalDateTime.of(reservation.getReserveDate(), reservation.getStartTime());
+        if (!LocalDateTime.now().isBefore(originStart)) {
+            throw new BusinessException(ResultCode.RESERVATION_STATUS_ERROR,
+                    "预约已开始或已结束，无法改期");
+        }
+        LabInfo lab = labInfoMapper.selectById(reservation.getLabId());
+        if (lab == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "实验室不存在");
+        }
+        if (lab.getEnableReserve() == null || lab.getEnableReserve() != 1
+                || lab.getOpenStatus() == null || lab.getOpenStatus() != 1) {
+            throw new BusinessException(ResultCode.RESERVATION_NOT_ALLOW, "该实验室当前不可预约");
+        }
+
+        LocalDate date = dto.getReserveDate();
+        if (date.isBefore(LocalDate.now())) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "新的预约日期不能早于今天");
+        }
+        if (!dto.getStartTime().isBefore(dto.getEndTime())) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "结束时间必须晚于开始时间");
+        }
+        List<LabTimeSlot> matchedSlots = validateTimeWindow(lab.getId(), date,
+                dto.getStartTime(), dto.getEndTime());
+        LabClosure closure = closureService.findClosure(lab.getId(), date);
+        if (closure != null) {
+            throw new BusinessException(ResultCode.RESERVATION_NOT_ALLOW,
+                    "该实验室当日闭馆"
+                            + (StrUtil.isNotBlank(closure.getReason()) ? "（" + closure.getReason() + "）" : ""));
+        }
+        int peopleCount = reservation.getPeopleCount() == null ? 1 : reservation.getPeopleCount();
+        int labCapacity = lab.getCapacity() == null ? 0 : lab.getCapacity();
+        if (peopleCount > labCapacity) {
+            throw new BusinessException(ResultCode.RESERVATION_OVER_CAPACITY,
+                    "预约人数超过实验室容量(" + labCapacity + ")，请先取消后重新预约");
+        }
+        int slotLimit = slotPeopleLimit(matchedSlots);
+        validateSlotCapacity(slotLimit, peopleCount);
+        List<Long> deviceIds = parseDeviceIds(reservation.getUseDeviceIds());
+        validateDeviceLock(lab.getId(), deviceIds);
+
+        // 锁实验室行：与提交预约共用同一把锁，保证「查容量 + 更新」不被并发穿透
+        reservationMapper.lockLabRow(lab.getId());
+        List<LabReservation> overlapping = reservationMapper.selectConflictingReservations(
+                lab.getId(), date, dto.getStartTime(), dto.getEndTime(),
+                reservation.getId(), BANNED_STATUS);
+        LabReservation mine = overlapping.stream()
+                .filter(r -> r.getStudentId() != null && r.getStudentId().equals(current.getUserId()))
+                .findFirst()
+                .orElse(null);
+        if (mine != null) {
+            throw new BusinessException(ResultCode.RESERVATION_CONFLICT,
+                    "你在该时段已有预约（单号 " + mine.getReservationNo() + "），请先取消后再改期");
+        }
+        if (lab.isExclusive() && !overlapping.isEmpty()) {
+            throw new BusinessException(ResultCode.RESERVATION_CONFLICT,
+                    "该实验室为整间独占模式，新时段已被占用（单号 "
+                            + overlapping.get(0).getReservationNo() + "）");
+        }
+        assertDevicesFree(overlapping, deviceIds);
+        int booked = OccupancyCalculator.peakPeople(overlapping, dto.getStartTime(), dto.getEndTime());
+        assertRemaining("实验室容量", labCapacity, booked, peopleCount);
+        if (slotLimit > 0) {
+            assertRemaining("该时段人数上限", slotLimit, booked, peopleCount);
+        }
+
+        LocalDate oldDate = reservation.getReserveDate();
+        java.time.LocalTime oldStart = reservation.getStartTime();
+        reservation.setReserveDate(date);
+        reservation.setStartTime(dto.getStartTime());
+        reservation.setEndTime(dto.getEndTime());
+        // 时段变了，原提醒标记必须清空，否则新的开始时间不会再提醒
+        reservation.setReminderSent(0);
+        reservationMapper.updateById(reservation);
+        if (from == ReservationStatus.APPROVED) {
+            // 已通过的单已有签到凭证，同步时段才能在新的窗口核销
+            checkinService.rescheduleTimes(reservation);
+        }
+        statisticsService.evictStatCache();
+        noticeService.push(reservation.getStudentId(), "预约已改期",
+                String.format("实验室「%s」的预约已从 %s %s 调整为 %s %s-%s。",
+                        reservation.getLabName(), oldDate, oldStart, date,
+                        dto.getStartTime(), dto.getEndTime()),
+                NoticeType.RESERVATION, reservation.getId());
+        notifyApprovers(reservation, "预约已改期",
+                String.format("%s 将实验室「%s」的预约改到 %s %s-%s，请留意后续安排。",
+                        current.getRealName(), reservation.getLabName(), date,
+                        dto.getStartTime(), dto.getEndTime()));
+        log.info("[预约] 改期成功 id={}, {} {} -> {} {}", reservation.getId(), oldDate, oldStart,
+                date, dto.getStartTime());
+        return convert(reservation);
+    }
+
+    /**
      * 定时推进已过期的预约（每 5 分钟）：
      *
      * <p>已通过（APPROVED）的预约在结束时刻之后自动流转为已完成（COMPLETED），
@@ -297,6 +433,9 @@ public class ReservationServiceImpl implements ReservationService {
     @Scheduled(cron = "0 */5 * * * ?")
     @Transactional(rollbackFor = Exception.class)
     public void autoCompleteExpired() {
+        if (!autoCompleteEnabled) {
+            return;
+        }
         LocalDate today = LocalDate.now();
         LocalDateTime now = LocalDateTime.now();
         // 只扫今天及更早、且仍处于已通过状态的单，避免全表扫描与误改未来预约
@@ -328,6 +467,9 @@ public class ReservationServiceImpl implements ReservationService {
      */
     @Scheduled(cron = "0 */5 * * * ?")
     public void remindUpcoming() {
+        if (!remindEnabled) {
+            return;
+        }
         LocalDateTime now = LocalDateTime.now();
         List<LabReservation> list = reservationMapper.selectList(new LambdaQueryWrapper<LabReservation>()
                 .eq(LabReservation::getStatus, ReservationStatus.APPROVED.name())
@@ -685,6 +827,68 @@ public class ReservationServiceImpl implements ReservationService {
                 }
             }
         }
+    }
+
+    /**
+     * 设备占用冲突校验：同一台设备在同一时段只能被一个有效预约使用。
+     *
+     * <p>复用「实验室 + 日期 + 时段」的冲突查询结果，在 Java 侧对 use_device_ids
+     * 做交集判断——设备与预约之间是多对多逗号串，用 FIND_IN_SET 在 SQL 里判断
+     * 既不可索引也不直观，而候选集本身只有同实验室同时段的少数几单。</p>
+     *
+     * @param overlapping  同实验室同日期同时段的有效预约
+     * @param requestedIds 本次要使用的设备（可为空，表示不限设备）
+     */
+    private void assertDevicesFree(List<LabReservation> overlapping, List<Long> requestedIds) {
+        if (requestedIds == null || requestedIds.isEmpty() || overlapping == null
+                || overlapping.isEmpty()) {
+            return;
+        }
+        Set<Long> wanted = new java.util.HashSet<>(requestedIds);
+        LabReservation conflict = null;
+        List<Long> conflictIds = new ArrayList<>();
+        for (LabReservation other : overlapping) {
+            List<Long> used = parseDeviceIds(other.getUseDeviceIds());
+            List<Long> hit = used.stream().filter(wanted::contains).toList();
+            if (!hit.isEmpty()) {
+                conflict = other;
+                conflictIds = hit;
+                break;
+            }
+        }
+        if (conflict == null) {
+            return;
+        }
+        List<Device> devices = deviceMapper.selectBatchIds(conflictIds);
+        String names = devices.stream()
+                .map(Device::getDeviceName)
+                .filter(StrUtil::isNotBlank)
+                .collect(Collectors.joining("、"));
+        throw new BusinessException(ResultCode.RESERVATION_CONFLICT,
+                "所选设备" + (names.isEmpty() ? "" : "[" + names + "]")
+                        + "在该时段已被其他预约占用（单号 " + conflict.getReservationNo()
+                        + "），请更换设备或时段");
+    }
+
+    /**
+     * 逗号串转设备ID集合（非法片段直接忽略，历史脏数据不应导致改期/提交崩溃）
+     */
+    private List<Long> parseDeviceIds(String raw) {
+        if (StrUtil.isBlank(raw)) {
+            return List.of();
+        }
+        List<Long> ids = new ArrayList<>();
+        for (String part : raw.split(",")) {
+            if (StrUtil.isBlank(part)) {
+                continue;
+            }
+            try {
+                ids.add(Long.parseLong(part.trim()));
+            } catch (NumberFormatException ignored) {
+                // 脏数据跳过，不影响其余设备的校验
+            }
+        }
+        return ids;
     }
 
     /**

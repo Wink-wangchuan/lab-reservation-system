@@ -6,10 +6,13 @@ import com.lab.reservation.vo.BoardSummaryVO;
 import com.lab.reservation.vo.HotLabVO;
 import com.lab.reservation.vo.LabBoardVO;
 import com.lab.reservation.vo.NameValueVO;
+import com.lab.reservation.vo.StatsMetricsVO;
 import com.lab.reservation.vo.StatsOverviewVO;
 import com.lab.reservation.vo.TrendPointVO;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -81,5 +84,21 @@ public class StatisticsController {
     @PreAuthorize("isAuthenticated()")
     public Result<BoardSummaryVO> boardSummary() {
         return Result.success(statisticsService.realtimeSummary());
+    }
+
+    @Operation(summary = "预约履约质量指标（通过率/驳回率/爽约率/平均审批时长）")
+    @GetMapping("/quality")
+    @PreAuthorize("hasAuthority('statistics:view')")
+    public Result<StatsMetricsVO> quality() {
+        return Result.success(statisticsService.quality());
+    }
+
+    @Operation(summary = "使用率报表导出(Excel)")
+    @GetMapping("/usage-export")
+    @PreAuthorize("hasAuthority('statistics:view')")
+    public void usageExport(
+            @Parameter(hidden = true) HttpServletResponse response,
+            @Parameter(description = "统计最近多少天，1-365") @RequestParam(defaultValue = "30") int days) {
+        statisticsService.exportUsageExcel(response, days);
     }
 }
