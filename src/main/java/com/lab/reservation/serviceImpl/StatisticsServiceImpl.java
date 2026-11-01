@@ -27,6 +27,7 @@ import com.lab.reservation.vo.StatsOverviewVO;
 import com.lab.reservation.vo.TrendPointVO;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellStyle;
 import org.apache.poi.ss.usermodel.FillPatternType;
@@ -66,6 +67,7 @@ import java.util.stream.Collectors;
  * @since 1.0.0
  */
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class StatisticsServiceImpl implements StatisticsService {
 
@@ -103,32 +105,45 @@ public class StatisticsServiceImpl implements StatisticsService {
 
     @Override
     public void recordReservationBooking(Long labId, String labName) {
-        // ZSet: 以实验室名称为成员，score 累加预约热度
-        stringRedisTemplate.opsForZSet()
-                .incrementScore(RedisKeyConstants.HOT_LAB_RANK, labName, 1);
+        // 缓存属于加速层：Redis 不可用时不能让预约提交失败，记录告警后继续走数据库统计
+        try {
+            // ZSet: 以实验室名称为成员，score 累加预约热度
+            stringRedisTemplate.opsForZSet()
+                    .incrementScore(RedisKeyConstants.HOT_LAB_RANK, labName, 1);
+        } catch (Exception e) {
+            log.warn("[统计] 热门实验室热度累加失败，已降级：{}", e.getMessage());
+        }
         // 统计缓存整体失效，下次请求重算
         evictStatCache();
     }
 
     @Override
     public void evictStatCache() {
-        // 版本号自增：旧缓存键立即失效，新请求落到新版本键，旧键由 TTL 自然回收
-        stringRedisTemplate.opsForValue().increment(RedisKeyConstants.STAT_CACHE_VERSION);
+        try {
+            // 版本号自增：旧缓存键立即失效，新请求落到新版本键，旧键由 TTL 自然回收
+            stringRedisTemplate.opsForValue().increment(RedisKeyConstants.STAT_CACHE_VERSION);
+        } catch (Exception e) {
+            log.warn("[统计] 缓存版本自增失败，已降级：{}", e.getMessage());
+        }
     }
 
     @Override
     public List<HotLabVO> hotLabs(int topN) {
-        // 1. 优先读 Redis ZSet 倒序 TopN
-        Set<ZSetOperations.TypedTuple<String>> tuples =
-                stringRedisTemplate.opsForZSet()
-                        .reverseRangeWithScores(RedisKeyConstants.HOT_LAB_RANK, 0, topN - 1L);
-        if (tuples != null && !tuples.isEmpty()) {
-            return tuples.stream().map(t -> {
-                HotLabVO vo = new HotLabVO();
-                vo.setLabName(t.getValue());
-                vo.setBookingCount(t.getScore());
-                return vo;
-            }).toList();
+        try {
+            // 1. 优先读 Redis ZSet 倒序 TopN
+            Set<ZSetOperations.TypedTuple<String>> tuples =
+                    stringRedisTemplate.opsForZSet()
+                            .reverseRangeWithScores(RedisKeyConstants.HOT_LAB_RANK, 0, topN - 1L);
+            if (tuples != null && !tuples.isEmpty()) {
+                return tuples.stream().map(t -> {
+                    HotLabVO vo = new HotLabVO();
+                    vo.setLabName(t.getValue());
+                    vo.setBookingCount(t.getScore());
+                    return vo;
+                }).toList();
+            }
+        } catch (Exception e) {
+            log.warn("[统计] 热门实验室缓存读取失败，改为从数据库重建：{}", e.getMessage());
         }
         // 2. 兜底：从库按预约记录分组重建排行
         return rebuildHotLabs(topN);
@@ -153,11 +168,15 @@ public class StatisticsServiceImpl implements StatisticsService {
             vo.setBookingCount(((Number) m.get("cnt")).doubleValue());
             list.add(vo);
         }
-        // 重建后回填 Redis（供后续直接命中）
+        // 重建后回填 Redis（供后续直接命中）；回填失败不影响本次返回
         if (!list.isEmpty()) {
-            stringRedisTemplate.delete(RedisKeyConstants.HOT_LAB_RANK);
-            list.forEach(v -> stringRedisTemplate.opsForZSet()
-                    .add(RedisKeyConstants.HOT_LAB_RANK, v.getLabName(), v.getBookingCount()));
+            try {
+                stringRedisTemplate.delete(RedisKeyConstants.HOT_LAB_RANK);
+                list.forEach(v -> stringRedisTemplate.opsForZSet()
+                        .add(RedisKeyConstants.HOT_LAB_RANK, v.getLabName(), v.getBookingCount()));
+            } catch (Exception e) {
+                log.warn("[统计] 热门实验室回填失败，已降级：{}", e.getMessage());
+            }
         }
         return list;
     }
@@ -186,20 +205,24 @@ public class StatisticsServiceImpl implements StatisticsService {
     public List<LabBoardVO> realtimeBoard() {
         String version = currentVersion();
         String key = RedisKeyConstants.boardRealtimeKey(version);
-        String json = stringRedisTemplate.opsForValue().get(key);
-        if (StrUtil.isNotBlank(json)) {
-            try {
-                return objectMapper.readValue(json, BOARD_LIST_TYPE);
-            } catch (JsonProcessingException ignored) {
-                // 缓存内容异常时按未命中处理
+        try {
+            String json = stringRedisTemplate.opsForValue().get(key);
+            if (StrUtil.isNotBlank(json)) {
+                try {
+                    return objectMapper.readValue(json, BOARD_LIST_TYPE);
+                } catch (JsonProcessingException ignored) {
+                    // 缓存内容异常时按未命中处理
+                }
             }
+        } catch (Exception e) {
+            log.warn("[统计] 实时看板缓存读取失败，直接回源：{}", e.getMessage());
         }
         List<LabBoardVO> list = loadBoard();
         try {
             stringRedisTemplate.opsForValue()
                     .set(key, objectMapper.writeValueAsString(list), BOARD_TTL);
-        } catch (JsonProcessingException ignored) {
-            // 写缓存失败不影响业务返回
+        } catch (Exception ignored) {
+            // 写缓存失败（含 Redis 不可用）不影响业务返回
         }
         return list;
     }
@@ -520,20 +543,24 @@ public class StatisticsServiceImpl implements StatisticsService {
      */
     private <T> T cached(String biz, TypeReference<T> type, Supplier<T> loader) {
         String key = statCacheKey(biz);
-        String json = stringRedisTemplate.opsForValue().get(key);
-        if (StrUtil.isNotBlank(json)) {
-            try {
-                return objectMapper.readValue(json, type);
-            } catch (JsonProcessingException ignored) {
-                // 缓存内容异常（如结构变更）时按未命中处理
+        try {
+            String json = stringRedisTemplate.opsForValue().get(key);
+            if (StrUtil.isNotBlank(json)) {
+                try {
+                    return objectMapper.readValue(json, type);
+                } catch (JsonProcessingException ignored) {
+                    // 缓存内容异常（如结构变更）时按未命中处理
+                }
             }
+        } catch (Exception e) {
+            log.warn("[统计] 缓存读取失败（{}），直接回源：{}", biz, e.getMessage());
         }
         T value = loader.get();
         try {
             stringRedisTemplate.opsForValue()
                     .set(key, objectMapper.writeValueAsString(value), STAT_TTL);
-        } catch (JsonProcessingException ignored) {
-            // 写缓存失败不影响业务返回
+        } catch (Exception ignored) {
+            // 写缓存失败（含 Redis 不可用）不影响业务返回
         }
         return value;
     }
@@ -543,11 +570,16 @@ public class StatisticsServiceImpl implements StatisticsService {
         return RedisKeyConstants.statCacheKey(biz, currentVersion());
     }
 
-    /** 当前缓存版本号（统计与实时看板共用同一版本计数器） */
+    /** 当前缓存版本号（统计与实时看板共用同一版本计数器）；Redis 不可用时按 0 处理 */
     private String currentVersion() {
-        String version = stringRedisTemplate.opsForValue()
-                .get(RedisKeyConstants.STAT_CACHE_VERSION);
-        return StrUtil.blankToDefault(version, "0");
+        try {
+            String version = stringRedisTemplate.opsForValue()
+                    .get(RedisKeyConstants.STAT_CACHE_VERSION);
+            return StrUtil.blankToDefault(version, "0");
+        } catch (Exception e) {
+            log.warn("[统计] 缓存版本读取失败，按 0 处理：{}", e.getMessage());
+            return "0";
+        }
     }
 
     // ==================== 各统计项回源实现 ====================

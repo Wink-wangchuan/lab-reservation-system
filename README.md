@@ -73,7 +73,7 @@
 | 功能 | 说明 |
 | --- | --- |
 | 预约申请 | 选择实验室、日期、时段、用途与人数，可指定设备；同一时段可多人共享，提交时展示剩余可约人数；勾选的设备若已被同时段其他预约占用会被拒绝；提交即进入待审核 |
-| 约满候补 | 时段约满可排队，有人取消或驳回后按顺序自动递补为待审核预约，可随时退出队列 |
+| 约满候补 | 时段约满可排队，有人取消或驳回后按顺序自动递补为待审核预约（容量释放事件即时触发，5 分钟扫描兜底），可随时退出队列；「我的候补」显示当前排位 |
 | 预约提醒 | 开始前 30 分钟推送站内提醒；超时未签到记为爽约，连续 3 次限制预约 7 天，按时签到达成自动解除 |
 | 我的预约 | 查看本人全部预约与状态，仅在预约开始前可取消（含原因）；待审核 / 已通过且未开始的预约可改期（换日期与时段，已通过单的核销码同步更新） |
 | 我的签到 | 查看本人核销码、签到记录，支持签退 |
@@ -116,6 +116,7 @@
 - **代办操作**：用祈使句说出目的即可执行，不必说标准说法——实验室支持简称与别名（「一机房」「物理实验室」），日期支持「本周五 / 明天 / 周末 / 下下周」，时段支持「下午两点半 / 第X节」，还能识别用途与人数；匹配到多间实验室或设备时会列候选追问，指定日约满会自动顺延到最近可约时段。可代办 **预约提交、取消预约、审批（通过/驳回）、设备报修** 四类动作，例如「帮我约明天下午去一机房写代码」「把测试同学的预约批了」「帮我取消后天第二机房」「示波器开不了机了，帮我报修」。权限、冲突检测、不可自审等规则仍由原业务服务校验，问句不会误触发操作
 - 会话上下文存 Redis，保留最近 20 条、24 小时过期
 - 内置限流（20 次/分钟）与单用户并发流互斥
+- **离线降级**：未配置模型令牌，或上游在首字节前就失败时，自动改用知识库 Top3 条目组织答案；代办指令仍可执行（规则解析不依赖模型）
 - **只答系统问题**：系统提示词约束助手只解答本系统相关提问；写代码、编程作业、翻译、闲聊等请求会被礼貌拒绝并引导回系统功能，任何情况下都不输出编程代码
 
 ### 通用体验
@@ -186,7 +187,7 @@ flowchart TB
     end
 
     subgraph Data["数据层"]
-        G[("MySQL<br/>15 张表")]
+        G[("MySQL<br/>17 张表")]
         H[("Redis<br/>缓存与验证码与会话")]
     end
 
@@ -291,6 +292,13 @@ npm run lint      # ESLint（Vue essential 规则，0 error 才允许合并）
 npm run build     # 产物在 frontend/dist
 npm run size      # 打包体积报告：每个 chunk 的原始 / gzip 体积与汇总
 npm run e2e       # 端到端冒烟：登录→驾驶舱→预约/实验室→发起预约弹窗→移动端（需本机 Chrome）
+npm run e2e:write # 写路径 E2E：提交→幂等→改期→取消→限流（会真实创建数据，结束后按 scripts/cleanup-e2e.sql 清理）
+```
+
+项目根目录下还可执行：
+
+```bash
+node scripts/doc-check.mjs   # 文档一致性：表数量 / 知识条目数 / 表清单与 sql/mysql.sql 对齐
 ```
 
 格式化：`npm run format`（Prettier 配置见 `frontend/.prettierrc.json`）。
@@ -443,6 +451,10 @@ a < d  AND  b > c
 | 定时任务开关 | 5 个定时任务各带 `lab.schedule.*` 开关（默认全开），可用 `SCHEDULE_*` 环境变量按环境裁剪，关闭后任务立即返回、不占数据库连接 |
 | 日志链路 | `TraceIdFilter` 为每个请求生成 traceId 写入 MDC 并回写响应头 `X-Trace-Id`；日志格式统一为「时间 / 级别 / traceId / 类名 / 消息」，同一次请求可整链检索 |
 | 前端体积 | 路由全部动态 import，Element Plus 与图标按需引入；`npm run size` 输出每个 chunk 的原始与 gzip 体积，便于判断首屏负担 |
+| 单点降级 | Redis 不可用时：登录态回查数据库、统计/看板/热门排行回源计算、缓存写失败只记日志、AI 限流与历史读写降级放行；核心预约与审批仍可用（吊销标记在故障期间按未吊销处理，属于明确接受的权衡） |
+| 健康检查 | `GET /api/health`（匿名）返回 `status/db/redis/time`；服务器 `lab-health.timer` 每 5 分钟巡检，连续两次失败自动重启后端并写日志 |
+| 事件驱动递补 | 取消/驳回/改期在事务提交后发布 `LabSeatReleasedEvent`，监听器异步调用 `promoteFor(labId, date)` 立即递补；5 分钟定时扫描保留为兜底，单次失败不影响主流程 |
+| 文档一致性 | `node scripts/doc-check.mjs` 校验 README 的表数量、知识条目数、表清单与 `sql/mysql.sql` 是否一致，不一致直接退出码 1 |
 
 ### 审批权限矩阵
 
@@ -507,7 +519,7 @@ flowchart LR
 
 ## 数据库设计
 
-共 15 张表（14 张业务表 + 1 张 AI 知识库表），全部使用 InnoDB + utf8mb4。
+共 17 张表（16 张业务表 + 1 张 AI 知识库表），全部使用 InnoDB + utf8mb4。
 
 | 表名 | 说明 | 关键字段 |
 | --- | --- | --- |
@@ -523,6 +535,8 @@ flowchart LR
 | `device` | 设备台账 | `device_code` 唯一、`status`、`fault_status`、`quantity` |
 | `device_repair` | 报修单 | 状态机 PENDING → REPAIRING → COMPLETED |
 | `lab_checkin` | 签到核销 | `checkin_code` 6 位唯一、签到/签退时间、核销人 |
+| `lab_closure` | 闭馆日历 | `lab_id`（0 表示全部）、起止日期、原因 |
+| `lab_waitlist` | 候补队列 | 实验室、日期时段、人数、状态 WAITING/PROMOTED/CANCELLED/EXPIRED |
 | `sys_notice` | 站内消息 | 类型 SYSTEM / RESERVATION / REPAIR、`read_flag` |
 | `sys_oper_log` | 操作日志 | 操作人、IP、参数、耗时、异常信息 |
 | `ai_knowledge` | AI 知识库 | `category`、`keywords`、`content`、`priority`、`status` |
@@ -690,6 +704,10 @@ npx bla-agents defend --input dist --output dist-protected --intensity stealth
 ### 运维定时任务
 
 ```bash
+# 健康巡检（每 5 分钟 curl /api/health，连续失败自动重启后端）
+systemctl --user enable --now lab-health.timer
+tail -f ~/lab-reservation/logs/health.log
+
 # 启用日志轮转与数据库备份（用户级 timer，无需 root）
 systemctl --user enable --now lab-logrotate.timer lab-db-backup.timer
 systemctl --user list-timers | grep lab-
@@ -704,6 +722,20 @@ zcat ~/lab-backup/lab_reservation_YYYYmmdd_HHMM.sql.gz | mysql -uroot -p lab_res
 
 数据库备份使用 PyMySQL 生成标准 SQL（`DROP TABLE` + `CREATE TABLE` + 批量 `INSERT`），
 不依赖 mysqldump；仅保留最近 7 份，避免磁盘被历史备份占满。
+
+### 演示数据（可选）
+
+真实预约样本太少时，仪表盘的通过率 / 爽约率 / 趋势没有运营意义。可用生成器灌入最近 30 天的演示数据：
+
+```bash
+# 生成（可重复执行，先清理旧演示数据再生成）
+~/opt/backup-venv/bin/python ~/lab-reservation/deploy/seed_demo.py
+# 清理
+~/opt/backup-venv/bin/python ~/lab-reservation/deploy/seed_demo.py --clean
+```
+
+所有演示记录的用途说明以「【演示数据】」开头，预约人挂在**禁用账号** `demo_seed` 上，
+不会占用真实账号的审批、签到与禁约逻辑；生成后可在驾驶舱看到有意义的履约质量指标。
 
 ---
 
@@ -734,6 +766,7 @@ zcat ~/lab-backup/lab_reservation_YYYYmmdd_HHMM.sql.gz | mysql -uroot -p lab_res
 | v3.7 | 预约闭环增强 | 开始前 30 分钟站内提醒（预约单打已提醒标记）；超时未签到记爽约，连续 3 次禁约 7 天、签到清零；新增候补队列（约满排队、每 5 分钟按先来先服务自动递补）；新增闭馆日历（按日期覆盖星期时段，支持全部实验室）；前端新增 `npm run e2e` 冒烟（Playwright + 本机 Chrome）；知识库补充 3 条（`upgrade_v3.7.sql`） |
 | v3.8 | 功能与工程优化 | 预约改期（本人、开始时点前、完整重校验、核销码同步）；设备占用冲突校验（同时段同一设备只能被一单使用）；驾驶舱新增履约质量指标（通过率/驳回率/爽约率/平均审批时长）与三页使用率报表导出；接口限流（Redis 固定窗口）与提交幂等（`X-Idempotency-Key`）；补齐 2 个热点索引；5 个定时任务可配置开关；traceId 日志链路；前端新增 `npm run size` 体积报告；知识库补充 3 条（`upgrade_v3.8.sql`） |
 | v3.9 | 消息提示改版 | 页内新消息提示由默认 ElNotification 改为右下角卡片浮层（类型图标/配色、正文两行截断、悬停暂停、最多 3 张、移动端贴底通栏）；顺带修复「列表未读优先排序导致已读旧消息被当成新消息弹出」的基线判定问题 |
+| v4.0 | 可用性与演示质量 | 新增匿名健康检查 `/api/health` 与服务器巡检自动重启；Redis 故障全链路降级（登录态回查数据库、统计/看板回源、AI 限流降级）；候补改为容量释放事件驱动即时递补并显示排位；AI 无令牌/上游失败时改用知识库检索式回答；新增 30 天演示数据生成与清理脚本；写路径 E2E（提交→改期→取消 + 幂等/限流）；README 表数/截图/知识数与实现同步，新增 `scripts/doc-check.mjs` |
 
 各版本的详细改动与踩坑记录见 `deploy/tailnet/README.md`。
 

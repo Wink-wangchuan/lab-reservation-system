@@ -161,23 +161,32 @@ public class AiAssistantServiceImpl implements AiAssistantService {
     @Override
     public String streamChat(Long userId, String question, Consumer<String> onDelta) {
         if (!aiProperties.isConfigured()) {
-            throw new BusinessException(ResultCode.AI_NOT_CONFIGURED);
+            // 未配置令牌时不再直接报错：代办指令仍是规则解析的，知识库检索也能给出可用回答
+            return offlineAnswer(userId, question, onDelta);
         }
-        // 1. 限流（每分钟计数，首次写入时设过期）
-        String rateKey = RedisKeyConstants.aiRateKey(userId);
-        Long count = stringRedisTemplate.opsForValue().increment(rateKey);
-        if (count != null && count == 1L) {
-            stringRedisTemplate.expire(rateKey, Duration.ofMinutes(1));
-        }
-        if (count != null && count > aiProperties.getRateLimitPerMinute()) {
-            throw new BusinessException(ResultCode.AI_TOO_FREQUENT);
-        }
-        // 2. 同一用户同时只允许一条流（TTL 兜底，进程异常退出也不会永久占用）
+        // 1. 限流（每分钟计数，首次写入时设过期）；Redis 不可用时降级为不限流，保证 AI 仍可用
+        boolean busyAcquired = true;
         String busyKey = RedisKeyConstants.aiBusyKey(userId);
-        Boolean acquired = stringRedisTemplate.opsForValue()
-                .setIfAbsent(busyKey, "1", Duration.ofSeconds(120));
-        if (!Boolean.TRUE.equals(acquired)) {
-            throw new BusinessException(ResultCode.AI_BUSY);
+        try {
+            String rateKey = RedisKeyConstants.aiRateKey(userId);
+            Long count = stringRedisTemplate.opsForValue().increment(rateKey);
+            if (count != null && count == 1L) {
+                stringRedisTemplate.expire(rateKey, Duration.ofMinutes(1));
+            }
+            if (count != null && count > aiProperties.getRateLimitPerMinute()) {
+                throw new BusinessException(ResultCode.AI_TOO_FREQUENT);
+            }
+            // 2. 同一用户同时只允许一条流（TTL 兜底，进程异常退出也不会永久占用）
+            Boolean acquired = stringRedisTemplate.opsForValue()
+                    .setIfAbsent(busyKey, "1", Duration.ofSeconds(120));
+            busyAcquired = Boolean.TRUE.equals(acquired);
+            if (!busyAcquired) {
+                throw new BusinessException(ResultCode.AI_BUSY);
+            }
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            log.warn("[AI] 限流/互斥缓存不可用，降级放行：{}", e.getMessage());
         }
         try {
             // 3. 代办指令优先：识别到「帮我预约/帮我审批」这类祈使句时直接执行业务动作，
@@ -192,12 +201,67 @@ public class AiAssistantServiceImpl implements AiAssistantService {
             //     由系统提示词约束模型礼貌拒绝，答复更自然，也不会误伤「去机房写代码」这类正常提问
             List<AiMessageVO> history = readHistory(userId);
             JSONArray messages = buildMessages(userId, question, history);
-            String answer = callUpstream(messages, onDelta);
+            // 上游异常时如果还没吐出任何内容，退回知识库答案；已经流式输出过半则照常抛出
+            StringBuilder emitted = new StringBuilder();
+            Consumer<String> tap = onDelta == null ? emitted::append : chunk -> {
+                emitted.append(chunk);
+                onDelta.accept(chunk);
+            };
+            String answer;
+            try {
+                answer = callUpstream(messages, tap);
+            } catch (BusinessException e) {
+                if (emitted.length() == 0
+                        && e.getCode() == ResultCode.AI_UPSTREAM_ERROR.getCode()) {
+                    log.warn("[AI] 上游不可用，降级为知识库回答：{}", e.getMessage());
+                    return offlineAnswer(userId, question, onDelta);
+                }
+                throw e;
+            }
             appendHistory(userId, question, answer);
             return answer;
         } finally {
-            stringRedisTemplate.delete(busyKey);
+            if (busyAcquired) {
+                try {
+                    stringRedisTemplate.delete(busyKey);
+                } catch (Exception e) {
+                    log.warn("[AI] 释放互斥标记失败（TTL 会兜底回收）：{}", e.getMessage());
+                }
+            }
         }
+    }
+
+    /**
+     * 离线/降级回答：先尝试规则式代办，再用知识库检索拼出可读答案
+     *
+     * <p>没有模型令牌、或上游在首字节前就失败时走这里。
+     * 代办属于确定性规则解析，不依赖模型；知识库检索也能回答大部分业务规则问题，
+     * 比直接返回「AI 未配置」更有用。</p>
+     */
+    private String offlineAnswer(Long userId, String question, Consumer<String> onDelta) {
+        AiActionService.Result action = aiActionService.handle(question);
+        String answer = action.matched() ? action.report() : buildKnowledgeAnswer(question);
+        streamText(answer, onDelta);
+        appendHistory(userId, question, answer);
+        return answer;
+    }
+
+    /** 用知识库 Top3 条目组织一段可直接阅读的答案 */
+    private String buildKnowledgeAnswer(String question) {
+        List<AiKnowledge> matched = KnowledgeRanker.rank(question, loadKnowledge(), 3);
+        String brief = StrUtil.maxLength(StrUtil.blankToDefault(question, ""), 40);
+        if (matched.isEmpty()) {
+            return "（离线知识库模式）暂未在系统知识库中找到与「" + brief
+                    + "」相关的内容。可以换个问法，或联系管理员配置 AI 服务令牌后获得自然语言回答。";
+        }
+        StringBuilder sb = new StringBuilder("（离线知识库模式）当前未连接 AI 模型，先按系统内置知识回答：\n\n");
+        for (int i = 0; i < matched.size(); i++) {
+            AiKnowledge knowledge = matched.get(i);
+            sb.append(i + 1).append(". 【").append(knowledge.getTitle()).append("】\n")
+                    .append(StrUtil.blankToDefault(knowledge.getContent(), "")).append("\n\n");
+        }
+        sb.append("以上内容来自系统知识库；如需更完整的解释，可由管理员配置 AI 令牌后启用自然语言回答。");
+        return sb.toString();
     }
 
     /**
@@ -429,7 +493,12 @@ public class AiAssistantServiceImpl implements AiAssistantService {
 
     /** 读取启用的知识库条目（Redis 整体缓存，未命中回源数据库） */
     private List<AiKnowledge> loadKnowledge() {
-        String cached = stringRedisTemplate.opsForValue().get(RedisKeyConstants.AI_KB);
+        String cached = null;
+        try {
+            cached = stringRedisTemplate.opsForValue().get(RedisKeyConstants.AI_KB);
+        } catch (Exception e) {
+            log.warn("[AI] 知识库缓存读取失败，回源数据库：{}", e.getMessage());
+        }
         if (StrUtil.isNotBlank(cached)) {
             try {
                 List<AiKnowledge> list = JSONUtil.toList(cached, AiKnowledge.class);
@@ -733,7 +802,14 @@ public class AiAssistantServiceImpl implements AiAssistantService {
     /* ==================== 会话历史（Redis List） ==================== */
 
     private List<AiMessageVO> readHistory(Long userId) {
-        List<String> raw = stringRedisTemplate.opsForList().range(RedisKeyConstants.aiChatKey(userId), 0, -1);
+        List<String> raw;
+        try {
+            raw = stringRedisTemplate.opsForList().range(RedisKeyConstants.aiChatKey(userId), 0, -1);
+        } catch (Exception e) {
+            // 会话历史属于增强能力：Redis 不可用时按「无历史」继续回答，不让对话整体失败
+            log.warn("[AI] 历史读取失败，按空会话继续：{}", e.getMessage());
+            return new ArrayList<>();
+        }
         List<AiMessageVO> list = new ArrayList<>();
         if (raw == null) {
             return list;
@@ -758,11 +834,15 @@ public class AiAssistantServiceImpl implements AiAssistantService {
     private void appendHistory(Long userId, String question, String answer) {
         String key = RedisKeyConstants.aiChatKey(userId);
         String now = LocalDateTime.now().format(TIME_FMT);
-        stringRedisTemplate.opsForList().rightPush(key,
-                JSONUtil.toJsonStr(new AiMessageVO("user", question, now)));
-        stringRedisTemplate.opsForList().rightPush(key,
-                JSONUtil.toJsonStr(new AiMessageVO("assistant", answer, now)));
-        stringRedisTemplate.opsForList().trim(key, -aiProperties.getMaxHistory(), -1);
-        stringRedisTemplate.expire(key, HISTORY_TTL);
+        try {
+            stringRedisTemplate.opsForList().rightPush(key,
+                    JSONUtil.toJsonStr(new AiMessageVO("user", question, now)));
+            stringRedisTemplate.opsForList().rightPush(key,
+                    JSONUtil.toJsonStr(new AiMessageVO("assistant", answer, now)));
+            stringRedisTemplate.opsForList().trim(key, -aiProperties.getMaxHistory(), -1);
+            stringRedisTemplate.expire(key, HISTORY_TTL);
+        } catch (Exception e) {
+            log.warn("[AI] 会话历史写入失败（不影响本次回答）：{}", e.getMessage());
+        }
     }
 }

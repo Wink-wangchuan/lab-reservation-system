@@ -53,4 +53,8 @@ UsersNebula*.png
 *.tmp
 # 报告生成工具的临时分享包与一次性排查产物
 .trae-html-share-packages/
-labwise-teardown/
+labwise-teardown*/
+
+# Python 产物
+__pycache__/
+*.pyc

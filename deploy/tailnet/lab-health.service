@@ -1,0 +1,6 @@
+[Unit]
+Description=LabWise 后端健康巡检（连续失败自动重启 lab-backend）
+
+[Service]
+Type=oneshot
+ExecStart=%h/lab-reservation/deploy/health_check.sh

@@ -1,0 +1,11 @@
+[Unit]
+Description=每 5 分钟巡检一次 LabWise 后端健康状态
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Unit=lab-health.service
+
+[Install]
+WantedBy=timers.target

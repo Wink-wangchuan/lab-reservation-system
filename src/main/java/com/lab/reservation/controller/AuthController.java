@@ -1,5 +1,6 @@
 package com.lab.reservation.controller;
 
+import com.lab.reservation.aop.RateLimit;
 import com.lab.reservation.common.Result;
 import com.lab.reservation.dto.CaptchaSendDTO;
 import com.lab.reservation.dto.CodeLoginDTO;
@@ -40,24 +41,28 @@ public class AuthController {
 
     @Operation(summary = "用户登录（用户名 + 密码）")
     @PostMapping("/login")
+    @RateLimit(limit = 10, seconds = 60, key = "auth-login")
     public Result<LoginVO> login(@Valid @RequestBody LoginDTO loginDTO) {
         return Result.success("登录成功", authService.login(loginDTO));
     }
 
-    @Operation(summary = "获取验证码（演示环境：验证码直接随响应返回）")
+    @Operation(summary = "获取验证码")
     @PostMapping("/captcha")
+    @RateLimit(limit = 3, seconds = 60, key = "auth-captcha")
     public Result<CaptchaVO> captcha(@Valid @RequestBody CaptchaSendDTO dto) {
         return Result.success("验证码已生成", authService.sendCaptcha(dto));
     }
 
     @Operation(summary = "验证码登录（用户名或手机号 + 验证码）")
     @PostMapping("/login-by-code")
+    @RateLimit(limit = 10, seconds = 60, key = "auth-code-login")
     public Result<LoginVO> loginByCode(@Valid @RequestBody CodeLoginDTO dto) {
         return Result.success("登录成功", authService.loginByCode(dto));
     }
 
     @Operation(summary = "自助注册（注册后需管理员审核）")
     @PostMapping("/register")
+    @RateLimit(limit = 3, seconds = 3600, key = "auth-register")
     public Result<Void> register(@Valid @RequestBody RegisterDTO dto) {
         authService.register(dto);
         return Result.success("注册成功，请等待管理员审核", null);
@@ -65,6 +70,7 @@ public class AuthController {
 
     @Operation(summary = "忘记密码（手机验证码校验后重置）")
     @PostMapping("/reset-password")
+    @RateLimit(limit = 5, seconds = 600, key = "auth-reset")
     public Result<Void> resetPassword(@Valid @RequestBody ResetPasswordDTO dto) {
         authService.resetPassword(dto);
         return Result.success("密码已重置，请使用新密码登录", null);

@@ -19,6 +19,7 @@ import com.lab.reservation.entity.SysUser;
 import com.lab.reservation.enums.CheckinStatus;
 import com.lab.reservation.enums.NoticeType;
 import com.lab.reservation.enums.ReservationStatus;
+import com.lab.reservation.event.LabSeatReleasedEvent;
 import com.lab.reservation.exception.BusinessException;
 import com.lab.reservation.mapper.DeviceMapper;
 import com.lab.reservation.mapper.LabApprovalMapper;
@@ -102,6 +103,8 @@ public class ReservationServiceImpl implements ReservationService {
     private final LabCheckinMapper checkinMapper;
     /** 闭馆日历：节假日/临时维护期间不可预约 */
     private final LabClosureService closureService;
+    /** 容量释放事件：取消/驳回/改期后立即触发候补递补（事件监听器异步处理） */
+    private final org.springframework.context.ApplicationEventPublisher eventPublisher;
 
     /** 预约开始前多少分钟提醒 */
     private static final int REMIND_MINUTES = 30;
@@ -287,6 +290,8 @@ public class ReservationServiceImpl implements ReservationService {
         checkinService.cancelByReservation(reservation.getId(), reason);
         // 状态变更后让统计缓存失效，保证驾驶舱数据及时刷新
         statisticsService.evictStatCache();
+        // 取消释放了该时段的容量：通知候补队列立即尝试递补，不必等下一个 5 分钟扫描
+        publishSeatReleased(reservation.getLabId(), reservation.getReserveDate(), "预约取消");
         noticeService.push(reservation.getStudentId(), "预约已取消",
                 String.format("实验室「%s」%s 的预约已取消。", reservation.getLabName(),
                         reservation.getReserveDate()),
@@ -407,6 +412,8 @@ public class ReservationServiceImpl implements ReservationService {
             checkinService.rescheduleTimes(reservation);
         }
         statisticsService.evictStatCache();
+        // 旧时段被释放：让原日期的候补也能立即递补
+        publishSeatReleased(reservation.getLabId(), oldDate, "预约改期释放旧时段");
         noticeService.push(reservation.getStudentId(), "预约已改期",
                 String.format("实验室「%s」的预约已从 %s %s 调整为 %s %s-%s。",
                         reservation.getLabName(), oldDate, oldStart, date,
@@ -576,6 +583,8 @@ public class ReservationServiceImpl implements ReservationService {
                             reservation.getStartTime(), reservation.getEndTime()),
                     NoticeType.RESERVATION, reservation.getId());
         } else {
+            // 驳回同样释放了该时段容量，立即触发该实验室当日的候补递补
+            publishSeatReleased(reservation.getLabId(), reservation.getReserveDate(), "预约驳回");
             noticeService.push(reservation.getStudentId(), "预约已被驳回",
                     String.format("实验室「%s」%s %s-%s 的预约被驳回%s",
                             reservation.getLabName(), reservation.getReserveDate(),
@@ -945,6 +954,25 @@ public class ReservationServiceImpl implements ReservationService {
             return false;
         }
         return roleMapper.selectRoleCodesByUserId(userId).contains(ROLE_TEACHER);
+    }
+
+    /**
+     * 发布「容量已释放」事件，由候补监听器在事务提交后异步递补
+     *
+     * <p>事件属于增强路径：发布失败只记日志，不能影响取消/驳回/改期本身；
+     * 候补队列仍有每 5 分钟一次的兜底扫描。</p>
+     */
+    private void publishSeatReleased(Long labId, LocalDate date, String reason) {
+        if (labId == null || date == null) {
+            return;
+        }
+        try {
+            if (eventPublisher != null) {
+                eventPublisher.publishEvent(new LabSeatReleasedEvent(labId, date, reason));
+            }
+        } catch (Exception e) {
+            log.warn("[预约] 容量释放事件发布失败（不影响主流程）：{}", e.getMessage());
+        }
     }
 
     /**

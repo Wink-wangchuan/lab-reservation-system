@@ -177,7 +177,21 @@ public class WaitlistServiceImpl implements WaitlistService {
                 .eq(LabWaitlist::getUserId, SecurityUtil.getUserId())
                 .orderByDesc(LabWaitlist::getCreateTime)
                 .last("LIMIT 50"));
-        return list.stream().map(this::convert).toList();
+        return list.stream().map(row -> {
+            WaitlistVO vo = convert(row);
+            // 排位只对「等待中」有意义：统计同一实验室、同一日期、同一时段里更早入队且仍在等待的人数
+            if (WaitlistStatus.of(row.getStatus()) == WaitlistStatus.WAITING) {
+                Long ahead = waitlistMapper.selectCount(new LambdaQueryWrapper<LabWaitlist>()
+                        .eq(LabWaitlist::getLabId, row.getLabId())
+                        .eq(LabWaitlist::getReserveDate, row.getReserveDate())
+                        .eq(LabWaitlist::getStartTime, row.getStartTime())
+                        .eq(LabWaitlist::getEndTime, row.getEndTime())
+                        .eq(LabWaitlist::getStatus, WaitlistStatus.WAITING.name())
+                        .lt(LabWaitlist::getCreateTime, row.getCreateTime()));
+                vo.setAheadCount(ahead == null ? 0 : ahead.intValue());
+            }
+            return vo;
+        }).toList();
     }
 
     @Override
@@ -230,6 +244,37 @@ public class WaitlistServiceImpl implements WaitlistService {
         if (promoted > 0) {
             statisticsService.evictStatCache();
             log.info("[候补] 自动递补完成，本次递补 {} 条", promoted);
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void promoteFor(Long labId, LocalDate date) {
+        if (!promoteEnabled || labId == null || date == null) {
+            return;
+        }
+        List<LabWaitlist> list = waitlistMapper.selectList(new LambdaQueryWrapper<LabWaitlist>()
+                .eq(LabWaitlist::getLabId, labId)
+                .eq(LabWaitlist::getReserveDate, date)
+                .eq(LabWaitlist::getStatus, WaitlistStatus.WAITING.name())
+                .orderByAsc(LabWaitlist::getCreateTime)
+                .last("LIMIT " + PROMOTE_BATCH));
+        if (list.isEmpty()) {
+            return;
+        }
+        int promoted = 0;
+        for (LabWaitlist row : list) {
+            try {
+                if (promoteOne(row)) {
+                    promoted++;
+                }
+            } catch (Exception e) {
+                log.warn("[候补] 即时递补失败 waitlistId={}", row.getId(), e);
+            }
+        }
+        if (promoted > 0) {
+            statisticsService.evictStatCache();
+            log.info("[候补] 容量释放即时递补完成，labId={}, date={}, 递补 {} 条", labId, date, promoted);
         }
     }
 

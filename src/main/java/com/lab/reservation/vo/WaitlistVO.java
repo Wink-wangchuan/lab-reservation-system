@@ -48,4 +48,7 @@ public class WaitlistVO {
 
     @Schema(description = "排队时间")
     private LocalDateTime createTime;
+
+    @Schema(description = "同实验室同时段排在我前面的人数（仅等待中的记录有意义）")
+    private Integer aheadCount;
 }

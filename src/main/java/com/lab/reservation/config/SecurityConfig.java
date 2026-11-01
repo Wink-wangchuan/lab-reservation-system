@@ -99,6 +99,8 @@ public class SecurityConfig {
                     auth.requestMatchers(
                             "/favicon.ico",
                             "/error",
+                            // 健康检查：服务器巡检脚本匿名探活，只返回依赖状态，不含配置信息
+                            "/api/health",
                             "/api/auth/login",
                             "/api/auth/captcha",
                             "/api/auth/login-by-code",

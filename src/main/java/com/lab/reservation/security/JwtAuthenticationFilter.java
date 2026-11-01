@@ -55,9 +55,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             try {
                 Long userId = jwtUtil.parseUserId(token);
                 LoginUser loginUser = loadLoginUser(userId);
-                // 密码变更后写入的吊销标记：该账号已签发的旧令牌一律失效，须重新登录
-                boolean revoked = Boolean.TRUE.equals(
-                        redisTemplate.hasKey(RedisKeyConstants.revokedKey(userId)));
+                // 密码变更后写入的吊销标记：该账号已签发的旧令牌一律失效，须重新登录。
+                // Redis 不可用时无法判断吊销状态，按「未吊销」放行——优先保证系统可用，
+                // 这是 Redis 故障降级时明确接受的权衡。
+                boolean revoked = false;
+                try {
+                    revoked = Boolean.TRUE.equals(
+                            redisTemplate.hasKey(RedisKeyConstants.revokedKey(userId)));
+                } catch (Exception e) {
+                    log.warn("[认证] 吊销标记读取失败，降级为未吊销：{}", e.getMessage());
+                }
 
                 if (!revoked && loginUser != null && loginUser.isEnabled()) {
                     UsernamePasswordAuthenticationToken authentication =
@@ -81,14 +88,23 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
      */
     private LoginUser loadLoginUser(Long userId) {
         String key = RedisKeyConstants.userKey(userId);
-        Object cached = redisTemplate.opsForValue().get(key);
-        if (cached instanceof LoginUser loginUser) {
-            return loginUser;
+        try {
+            Object cached = redisTemplate.opsForValue().get(key);
+            if (cached instanceof LoginUser loginUser) {
+                return loginUser;
+            }
+        } catch (Exception e) {
+            // Redis 故障时退回数据库：认证是每个请求的必经路径，不能因缓存不可用而整体 500
+            log.warn("[认证] 登录用户缓存读取失败，回查数据库：{}", e.getMessage());
         }
         LoginUser loginUser = permissionService.loadLoginUserByUserId(userId);
         if (loginUser != null) {
-            redisTemplate.opsForValue().set(
-                    key, loginUser, jwtProperties.getExpiration(), TimeUnit.MILLISECONDS);
+            try {
+                redisTemplate.opsForValue().set(
+                        key, loginUser, jwtProperties.getExpiration(), TimeUnit.MILLISECONDS);
+            } catch (Exception e) {
+                log.warn("[认证] 登录用户缓存写入失败：{}", e.getMessage());
+            }
         }
         return loginUser;
     }

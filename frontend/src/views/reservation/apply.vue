@@ -195,7 +195,7 @@
     </el-dialog>
 
     <!-- 我的候补队列 -->
-    <el-dialog v-model="waitlistVisible" title="我的候补" :width="isMobile ? '92%' : '660px'">
+    <el-dialog v-model="waitlistVisible" title="我的候补" :width="isMobile ? '92%' : '740px'">
       <el-table v-loading="waitlistLoading" :data="waitlistRows" stripe border>
         <el-table-column label="实验室" prop="labName" min-width="150" />
         <el-table-column label="日期" prop="reserveDate" width="110" />
@@ -203,6 +203,14 @@
           <template #default="{ row }">{{ hhmm(row.startTime) }}-{{ hhmm(row.endTime) }}</template>
         </el-table-column>
         <el-table-column label="人数" prop="peopleCount" width="70" align="center" />
+        <el-table-column label="排位" width="90" align="center">
+          <template #default="{ row }">
+            <span v-if="row.status === 'WAITING'">
+              {{ row.aheadCount > 0 ? `第 ${row.aheadCount + 1} 位` : '下一位' }}
+            </span>
+            <span v-else class="muted">-</span>
+          </template>
+        </el-table-column>
         <el-table-column label="状态" width="90" align="center">
           <template #default="{ row }">
             <el-tag :type="waitStatusType(row.status)" size="small">{{ row.statusDesc }}</el-tag>
@@ -595,6 +603,11 @@ onUnmounted(() => {
 
 .people-tip {
   font-size: 12px;
+  color: var(--ink-3);
+}
+
+/* 候补排位为空时用弱化色 */
+.muted {
   color: var(--ink-3);
 }
 
