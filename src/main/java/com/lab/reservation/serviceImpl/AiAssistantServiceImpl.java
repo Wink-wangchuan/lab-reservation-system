@@ -60,6 +60,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -68,7 +69,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * AI 助手服务实现
@@ -148,6 +151,37 @@ public class AiAssistantServiceImpl implements AiAssistantService {
             "TEACHER", "教师",
             "STUDENT", "学生");
 
+    /** 越界请求的统一答复：助手只做本系统的业务问答，不提供编程代码 */
+    static final String OFF_TOPIC_REPLY = """
+            我是「智慧实验室预约管理系统」的助手，只负责本系统的预约、审批、签到核销、报修、\
+            实验室与设备台账、权限、统计等问题，不提供编程代码、课程作业或其它通用问答。
+
+            你可以这样问我：
+            · 明天下午第一机房还有多少空位？
+            · 预约时间冲突是怎么判定的？
+            · 设备报修要走哪些流程？
+            · 我的预约为什么被驳回了？""";
+
+    /** 明确的写代码请求话术：出现即判定越界（单纯「写代码」不算，避免误伤「去机房写代码」这类正常说法） */
+    private static final List<String> CODING_REQUEST_PHRASES = List.of(
+            "代码示例", "代码实现", "写一段代码", "写段代码", "写个代码", "生成代码",
+            "写个程序", "写一个程序", "编写程序", "写个脚本", "写一段脚本",
+            "代码怎么写", "代码如何写", "帮我写代码", "给我写代码");
+
+    /** 编程语言/技术栈名称：需配合「写/实现/生成」等动作词才判定越界，避免误伤系统相关问题 */
+    private static final List<String> CODING_LANGUAGES = List.of(
+            "python", "java", "javascript", "typescript", "c++", "c#", "c语言",
+            "golang", "php", "matlab", "sql语句", "html代码", "css代码");
+
+    /** 典型的编程练习题：本身就是越界请求 */
+    private static final List<String> CODING_EXERCISES = List.of(
+            "九九乘法表", "乘法表", "冒泡排序", "快速排序", "斐波那契", "水仙花",
+            "汉诺塔", "二分查找", "leetcode", "力扣", "算法题", "爬虫", "贪吃蛇");
+
+    /** 「帮我写代码 / 给我写个程序」：写动作后紧跟代码名词，避免把「帮我预约…写代码」误判 */
+    private static final Pattern WANTS_CODE_PATTERN = Pattern.compile(
+            "(帮我|给我|替我|请你)(写|编)[^，。？！,]{0,8}(代码|程序|脚本)");
+
     @Override
     public List<AiMessageVO> history() {
         return readHistory(SecurityUtil.getUserId());
@@ -188,6 +222,13 @@ public class AiAssistantServiceImpl implements AiAssistantService {
                 appendHistory(userId, question, action.report());
                 return action.report();
             }
+            // 3.5 范围拦截：写代码、编程作业这类与系统无关的请求直接拒绝，
+            //     既不消耗模型配额，也避免把「通用编程问答」的能力挂在系统助手上
+            if (isOffTopicCodingRequest(question)) {
+                streamText(OFF_TOPIC_REPLY, onDelta);
+                appendHistory(userId, question, OFF_TOPIC_REPLY);
+                return OFF_TOPIC_REPLY;
+            }
             List<AiMessageVO> history = readHistory(userId);
             JSONArray messages = buildMessages(userId, question, history);
             String answer = callUpstream(messages, onDelta);
@@ -196,6 +237,34 @@ public class AiAssistantServiceImpl implements AiAssistantService {
         } finally {
             stringRedisTemplate.delete(busyKey);
         }
+    }
+
+    /**
+     * 判断是否为越界的编程/作业类请求
+     *
+     * <p>只按提问文本判断、不依赖模型，保证拒绝结果稳定且不消耗上游配额：</p>
+     * <ol>
+     *   <li>出现典型编程练习题（九九乘法表 / 冒泡排序 / 力扣 …）即越界；</li>
+     *   <li>出现明确的写代码话术（代码示例 / 写一段代码 / 生成代码 …）即越界；</li>
+     *   <li>出现语言名时，还需搭配「写 / 实现 / 生成 / 编写」才越界；
+     *       单纯「去机房写代码」这类正常说法不判定，避免误伤预约类问题。</li>
+     * </ol>
+     */
+    static boolean isOffTopicCodingRequest(String question) {
+        if (StrUtil.isBlank(question)) {
+            return false;
+        }
+        String q = question.toLowerCase(Locale.ROOT);
+        if (CODING_REQUEST_PHRASES.stream().anyMatch(q::contains)
+                || CODING_EXERCISES.stream().anyMatch(q::contains)) {
+            return true;
+        }
+        boolean mentionsLanguage = CODING_LANGUAGES.stream().anyMatch(q::contains);
+        if (mentionsLanguage && Stream.of("写", "实现", "生成", "编写", "来一个", "来段").anyMatch(q::contains)) {
+            return true;
+        }
+        // 「帮我写代码 / 给我写个程序」：写动作后紧跟代码名词，避免把「帮我预约…写代码」误判
+        return WANTS_CODE_PATTERN.matcher(q).find();
     }
 
     /**
@@ -381,8 +450,10 @@ public class AiAssistantServiceImpl implements AiAssistantService {
                 1. 用简体中文回答，简洁专业；
                 2. 涉及系统的规则、流程、操作步骤时，优先依据下方【系统知识库】作答；涉及系统实时数据时只能依据【系统数据】作答；两者都没有的内容就说明「暂无相关资料」，不要编造；
                 3. 需要用户操作时，指出具体页面，例如「预约申请」页、「我的签到」页；
-                4. 与系统无关的通用问题照常回答即可；
-                5. 排版要求：不要输出 Markdown 标题符号（#），小节直接用文字编号（一、二、三 或 1. 2. 3.）；
+                4. 只回答与本系统相关的问题（预约、审批、签到核销、报修、实验室与设备台账、权限、统计、站内消息及本系统的使用排障）；
+                   写代码、编程题、课程作业、翻译、闲聊、通用百科等无关请求一律不直接作答，用一句话礼貌说明「我是实验室预约系统的助手，只能解答本系统相关问题」并引导用户改问系统内问题；
+                5. 任何情况下都不要输出编程代码、脚本或程序，即使是「九九乘法表」这类简单练习也不提供；
+                6. 排版要求：不要输出 Markdown 标题符号（#），小节直接用文字编号（一、二、三 或 1. 2. 3.）；
                    重要词可用加粗，强调内容用「」引号；可以用 emoji 适当点缀分区，但不要堆砌。
                 """);
 
