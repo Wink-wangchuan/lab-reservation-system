@@ -8,12 +8,14 @@ import com.lab.reservation.common.ResultCode;
 import com.lab.reservation.dto.CheckinVerifyDTO;
 import com.lab.reservation.entity.LabCheckin;
 import com.lab.reservation.entity.LabReservation;
+import com.lab.reservation.entity.SysUser;
 import com.lab.reservation.enums.CheckinStatus;
 import com.lab.reservation.enums.NoticeType;
 import com.lab.reservation.enums.ReservationStatus;
 import com.lab.reservation.exception.BusinessException;
 import com.lab.reservation.mapper.LabCheckinMapper;
 import com.lab.reservation.mapper.LabReservationMapper;
+import com.lab.reservation.mapper.SysUserMapper;
 import com.lab.reservation.security.LoginUser;
 import com.lab.reservation.security.SecurityUtil;
 import com.lab.reservation.service.CheckinService;
@@ -30,6 +32,7 @@ import org.springframework.transaction.annotation.Transactional;
 import cn.hutool.core.util.StrUtil;
 
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -56,6 +59,14 @@ public class CheckinServiceImpl implements CheckinService {
     /** 签到超时等状态推进需要给预约人推送站内消息 */
     private final NoticeService noticeService;
     private final StatisticsService statisticsService;
+    /** 爽约信用：超时未签到累加次数，连续 3 次禁约 7 天 */
+    private final SysUserMapper sysUserMapper;
+
+    /** 连续爽约多少次后限制预约 */
+    private static final int NO_SHOW_LIMIT = 3;
+
+    /** 连续爽约后的禁约天数 */
+    private static final int NO_SHOW_BAN_DAYS = 7;
 
     /** 允许提前签到时长的分钟数 */
     private static final int EARLY_MINUTES = 30;
@@ -159,6 +170,8 @@ public class CheckinServiceImpl implements CheckinService {
         checkin.setCheckinByName(current.getRealName());
         checkin.setRemark(dto.getRemark());
         checkinMapper.updateById(checkin);
+        // 按时到场签到：连续爽约计数清零，已生效的限制也一并解除
+        clearNoShow(checkin.getUserId());
         statisticsService.evictStatCache();
         return convert(checkin);
     }
@@ -292,7 +305,8 @@ public class CheckinServiceImpl implements CheckinService {
             if (to == CheckinStatus.COMPLETED) {
                 completeReservation(checkin.getReservationId());
             } else {
-                // 超时未签到：主动告知预约人，避免其以为预约仍然有效
+                // 超时未签到：记一次爽约，并主动告知预约人，避免其以为预约仍然有效
+                recordNoShow(checkin);
                 noticeService.push(checkin.getUserId(), "预约已过期",
                         String.format("实验室「%s」%s %s-%s 的预约因未在时段内签到已过期。",
                                 checkin.getLabName(), checkin.getReserveDate(),
@@ -308,6 +322,46 @@ public class CheckinServiceImpl implements CheckinService {
     }
 
     /* ==================== 辅助逻辑 ==================== */
+
+    /** 签到成功：连续爽约计数清零，禁约限制一并解除 */
+    private void clearNoShow(Long userId) {
+        if (userId == null) {
+            return;
+        }
+        sysUserMapper.update(null, new LambdaUpdateWrapper<SysUser>()
+                .eq(SysUser::getId, userId)
+                .set(SysUser::getNoShowCount, 0)
+                .set(SysUser::getNoShowBanUntil, null));
+    }
+
+    /**
+     * 超时未签到记为一次爽约：连续满 {@value #NO_SHOW_LIMIT} 次限制预约 {@value #NO_SHOW_BAN_DAYS} 天，
+     * 并推送站内消息说明原因与恢复方式（按时签到即清零）。
+     */
+    private void recordNoShow(LabCheckin checkin) {
+        if (checkin.getUserId() == null) {
+            return;
+        }
+        SysUser user = sysUserMapper.selectById(checkin.getUserId());
+        if (user == null) {
+            return;
+        }
+        int count = (user.getNoShowCount() == null ? 0 : user.getNoShowCount()) + 1;
+        LocalDateTime banUntil = user.getNoShowBanUntil();
+        if (count >= NO_SHOW_LIMIT) {
+            banUntil = LocalDateTime.now().plusDays(NO_SHOW_BAN_DAYS);
+        }
+        sysUserMapper.update(null, new LambdaUpdateWrapper<SysUser>()
+                .eq(SysUser::getId, user.getId())
+                .set(SysUser::getNoShowCount, count)
+                .set(SysUser::getNoShowBanUntil, banUntil));
+        if (count >= NO_SHOW_LIMIT && banUntil != null) {
+            noticeService.push(user.getId(), "预约权限受限",
+                    String.format("你已连续 %d 次预约后未到场签到，系统限制预约至 %s；按时签到可解除限制。",
+                            count, banUntil.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))),
+                    NoticeType.SYSTEM, null);
+        }
+    }
 
     private LabCheckin getCheckin(Long id) {
         // 并发串行化：锁住签到单行，避免并发核销/签退绕过状态机校验

@@ -6,6 +6,8 @@ import com.lab.reservation.common.BaseEntity;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
+import java.time.LocalDateTime;
+
 /**
  * 系统用户实体
  *
@@ -44,6 +46,12 @@ public class SysUser extends BaseEntity {
 
     /** 状态：0禁用 1启用 2待审核（自助注册的初始状态，由管理员审核放行） */
     private Integer status;
+
+    /** 连续爽约次数：超时未签到累加，签到成功清零 */
+    private Integer noShowCount;
+
+    /** 连续爽约后的禁约截止时间：为空表示未被限制 */
+    private LocalDateTime noShowBanUntil;
 
     /** 创建人 */
     private String createBy;

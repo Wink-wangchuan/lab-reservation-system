@@ -9,21 +9,28 @@ import com.lab.reservation.dto.ApprovalDTO;
 import com.lab.reservation.dto.ReservationSubmitDTO;
 import com.lab.reservation.entity.Device;
 import com.lab.reservation.entity.LabApproval;
+import com.lab.reservation.entity.LabCheckin;
+import com.lab.reservation.entity.LabClosure;
 import com.lab.reservation.entity.LabInfo;
 import com.lab.reservation.entity.LabReservation;
 import com.lab.reservation.entity.LabTimeSlot;
+import com.lab.reservation.entity.SysUser;
+import com.lab.reservation.enums.CheckinStatus;
 import com.lab.reservation.enums.NoticeType;
 import com.lab.reservation.enums.ReservationStatus;
 import com.lab.reservation.exception.BusinessException;
 import com.lab.reservation.mapper.DeviceMapper;
 import com.lab.reservation.mapper.LabApprovalMapper;
+import com.lab.reservation.mapper.LabCheckinMapper;
 import com.lab.reservation.mapper.LabInfoMapper;
 import com.lab.reservation.mapper.LabReservationMapper;
 import com.lab.reservation.mapper.LabTimeSlotMapper;
 import com.lab.reservation.mapper.SysRoleMapper;
+import com.lab.reservation.mapper.SysUserMapper;
 import com.lab.reservation.security.LoginUser;
 import com.lab.reservation.security.SecurityUtil;
 import com.lab.reservation.service.CheckinService;
+import com.lab.reservation.service.LabClosureService;
 import com.lab.reservation.service.NoticeService;
 import com.lab.reservation.service.ReservationService;
 import com.lab.reservation.service.StatisticsService;
@@ -50,6 +57,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -87,6 +95,15 @@ public class ReservationServiceImpl implements ReservationService {
     private final NoticeService noticeService;
     /** 判定提交人是否教师：教师提交的预约需由管理员审批 */
     private final SysRoleMapper roleMapper;
+    /** 爽约限制：连续爽约满额后禁止预约一段时间 */
+    private final SysUserMapper sysUserMapper;
+    /** 开始前提醒需要跳过已签到的预约 */
+    private final LabCheckinMapper checkinMapper;
+    /** 闭馆日历：节假日/临时维护期间不可预约 */
+    private final LabClosureService closureService;
+
+    /** 预约开始前多少分钟提醒 */
+    private static final int REMIND_MINUTES = 30;
 
     /** 可审批教师提交预约的角色（教师本人不能审批教师单） */
     private static final String ROLE_SUPER_ADMIN = "SUPER_ADMIN";
@@ -109,6 +126,9 @@ public class ReservationServiceImpl implements ReservationService {
     @Transactional(rollbackFor = Exception.class)
     public ReservationVO submit(ReservationSubmitDTO dto) {
         LoginUser current = SecurityUtil.getLoginUser();
+
+        // ========== 0. 爽约限制：连续爽约满 3 次后一段时间内禁止预约 ==========
+        assertNotRestricted(current.getUserId());
 
         // ========== 1. 实验室合法性 & 开放状态校验 ==========
         LabInfo lab = labInfoMapper.selectById(dto.getLabId());
@@ -137,6 +157,13 @@ public class ReservationServiceImpl implements ReservationService {
         // 2.1 开放时段校验：请求时段必须被该实验室当日某个启用时段完整包含
         List<LabTimeSlot> matchedSlots = validateTimeWindow(lab.getId(), date,
                 dto.getStartTime(), dto.getEndTime());
+        // 2.1.1 闭馆日历：节假日 / 临时维护期间整间不可预约
+        LabClosure closure = closureService.findClosure(lab.getId(), date);
+        if (closure != null) {
+            throw new BusinessException(ResultCode.RESERVATION_NOT_ALLOW,
+                    "该实验室当日闭馆"
+                            + (StrUtil.isNotBlank(closure.getReason()) ? "（" + closure.getReason() + "）" : ""));
+        }
         // 2.2 单次人数合法性：实验室容量是所有时段的公共上限，时段自身还可配置更小的人数上限
         int labCapacity = lab.getCapacity() == null ? 0 : lab.getCapacity();
         if (dto.getPeopleCount() > labCapacity) {
@@ -290,6 +317,53 @@ public class ReservationServiceImpl implements ReservationService {
             // 预约状态影响驾驶舱统计，变更后必须让缓存失效
             statisticsService.evictStatCache();
             log.info("[预约] 过期预约自动完成，本次更新 {} 条", changed);
+        }
+    }
+
+    /**
+     * 预约开始前提醒（每 5 分钟扫描一次）
+     *
+     * <p>只扫当天、已通过、且尚未提醒过的预约；开始前 {提醒提前量} 分钟内推送，
+     * 提醒后在预约单上打标记，任务重跑不会重复打扰。</p>
+     */
+    @Scheduled(cron = "0 */5 * * * ?")
+    public void remindUpcoming() {
+        LocalDateTime now = LocalDateTime.now();
+        List<LabReservation> list = reservationMapper.selectList(new LambdaQueryWrapper<LabReservation>()
+                .eq(LabReservation::getStatus, ReservationStatus.APPROVED.name())
+                .eq(LabReservation::getReserveDate, now.toLocalDate())
+                .eq(LabReservation::getReminderSent, 0));
+        if (list.isEmpty()) {
+            return;
+        }
+        // 已签到/已完成的预约不再提醒，避免"你已经到场了还催你"
+        Set<Long> checkedIn = checkinMapper.selectList(new LambdaQueryWrapper<LabCheckin>()
+                        .in(LabCheckin::getReservationId, list.stream().map(LabReservation::getId).toList())
+                        .in(LabCheckin::getStatus, List.of(CheckinStatus.CHECKED_IN.name(),
+                                CheckinStatus.COMPLETED.name())))
+                .stream().map(LabCheckin::getReservationId).collect(Collectors.toSet());
+
+        int sent = 0;
+        for (LabReservation reservation : list) {
+            if (checkedIn.contains(reservation.getId())) {
+                continue;
+            }
+            LocalDateTime startAt = LocalDateTime.of(reservation.getReserveDate(), reservation.getStartTime());
+            if (startAt.isBefore(now) || startAt.isAfter(now.plusMinutes(REMIND_MINUTES))) {
+                continue;
+            }
+            noticeService.push(reservation.getStudentId(), "预约即将开始",
+                    String.format("实验室「%s」今天 %s-%s 的预约将于 %s 开始，请提前到场并出示核销码签到。",
+                            reservation.getLabName(), reservation.getStartTime(),
+                            reservation.getEndTime(), startAt.format(DateTimeFormatter.ofPattern("HH:mm"))),
+                    NoticeType.RESERVATION, reservation.getId());
+            // 打上已提醒标记，任务重跑不会重复打扰
+            reservation.setReminderSent(1);
+            reservationMapper.updateById(reservation);
+            sent++;
+        }
+        if (sent > 0) {
+            log.info("[预约] 开始前提醒已推送 {} 条", sent);
         }
     }
 
@@ -625,6 +699,20 @@ public class ReservationServiceImpl implements ReservationService {
                 result.getSize(), result.getTotal());
         voResult.setRecords(result.getRecords().stream().map(this::convert).toList());
         return voResult;
+    }
+
+    /**
+     * 爽约限制校验：连续爽约满 3 次后会被限制预约 7 天，签到成功即解除
+     */
+    private void assertNotRestricted(Long userId) {
+        SysUser user = sysUserMapper.selectById(userId);
+        if (user != null && user.getNoShowBanUntil() != null
+                && user.getNoShowBanUntil().isAfter(LocalDateTime.now())) {
+            throw new BusinessException(ResultCode.RESERVATION_NOT_ALLOW,
+                    "因连续爽约，你的预约权限已被限制至 "
+                            + user.getNoShowBanUntil().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+                            + "，按时签到可自动解除限制");
+        }
     }
 
     /**

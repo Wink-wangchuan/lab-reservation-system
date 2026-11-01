@@ -67,6 +67,10 @@ export const slotList = (labId) => request.get(`/lab/slot/${labId}`)
 export const slotSave = (labId, data) => request.post(`/lab/slot/${labId}`, data)
 export const slotAvailable = (labId, date) =>
   request.get(`/lab/slot/available/${labId}`, { params: { date } })
+// 闭馆日历（节假日 / 临时维护）
+export const closureList = (labId) => request.get('/lab/slot/closure', { params: { labId } })
+export const closureAdd = (data) => request.post('/lab/slot/closure', data)
+export const closureDelete = (id) => request.delete(`/lab/slot/closure/${id}`)
 
 // 设备
 export const devicePage = (params) => request.get('/device/page', { params })
@@ -97,6 +101,10 @@ export const reservationApprove = (data) => request.post('/reservation/approve',
 export const reservationMine = (params) => request.get('/reservation/mine', { params })
 export const reservationPage = (params) => request.get('/reservation/page', { params })
 export const reservationDetail = (id) => request.get(`/reservation/${id}`)
+// 候补队列
+export const waitlistJoin = (data) => request.post('/reservation/waitlist', data)
+export const waitlistMine = () => request.get('/reservation/waitlist/mine')
+export const waitlistCancel = (id) => request.delete(`/reservation/waitlist/${id}`)
 // 导出 Excel：必须走 axios 以携带 JWT，并用 blob 接收二进制流
 export const reservationExport = (params) => request.get('/reservation/export', { params, responseType: 'blob' })
 

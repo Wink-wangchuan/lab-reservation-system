@@ -8,7 +8,9 @@ import com.lab.reservation.common.Result;
 import com.lab.reservation.dto.ApprovalDTO;
 import com.lab.reservation.dto.ReservationSubmitDTO;
 import com.lab.reservation.service.ReservationService;
+import com.lab.reservation.service.WaitlistService;
 import com.lab.reservation.vo.ReservationVO;
+import com.lab.reservation.vo.WaitlistVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -17,6 +19,8 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 /**
  * 预约管理接口
@@ -34,6 +38,7 @@ import org.springframework.web.bind.annotation.*;
 public class ReservationController {
 
     private final ReservationService reservationService;
+    private final WaitlistService waitlistService;
 
     @Operation(summary = "提交预约（学生）")
     @PostMapping("/submit")
@@ -92,6 +97,30 @@ public class ReservationController {
     @PreAuthorize("isAuthenticated()")
     public Result<ReservationVO> detail(@PathVariable Long id) {
         return Result.success(reservationService.getDetail(id));
+    }
+
+    @Operation(summary = "加入候补队列（时段已约满时）")
+    @PostMapping("/waitlist")
+    @OperationLog(module = "预约管理", businessType = "insert", description = "加入候补队列")
+    @PreAuthorize("hasAuthority('reservation:submit')")
+    public Result<WaitlistVO> joinWaitlist(@Valid @RequestBody ReservationSubmitDTO dto) {
+        return Result.success("已加入候补队列", waitlistService.join(dto));
+    }
+
+    @Operation(summary = "我的候补记录")
+    @GetMapping("/waitlist/mine")
+    @PreAuthorize("hasAuthority('reservation:mine')")
+    public Result<List<WaitlistVO>> myWaitlist() {
+        return Result.success(waitlistService.mine());
+    }
+
+    @Operation(summary = "取消候补")
+    @DeleteMapping("/waitlist/{id}")
+    @OperationLog(module = "预约管理", businessType = "delete", description = "取消候补")
+    @PreAuthorize("hasAuthority('reservation:cancel')")
+    public Result<Void> cancelWaitlist(@PathVariable Long id) {
+        waitlistService.cancel(id);
+        return Result.success();
     }
 
     @Operation(summary = "预约记录导出(Excel)")

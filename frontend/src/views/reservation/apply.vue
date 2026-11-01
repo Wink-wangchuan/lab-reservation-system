@@ -8,6 +8,9 @@
           我的预约
         </div>
         <div class="toolbar-right">
+          <el-button @click="openWaitlist">
+            <el-icon><Timer /></el-icon> 我的候补
+          </el-button>
           <el-button type="primary" @click="openApply">
             <el-icon><Plus /></el-icon> 发起预约
           </el-button>
@@ -131,11 +134,41 @@
         <el-form-item label="实验用途" prop="purpose">
           <el-input v-model="applyForm.purpose" type="textarea" :rows="3" maxlength="512" show-word-limit placeholder="请输入实验/课程名称与用途说明" />
         </el-form-item>
+        <!-- 时段余量不够时提供候补入口，避免用户只能反复刷新等退单 -->
+        <el-form-item v-if="needWaitlist" label=" ">
+          <div class="waitlist-tip">
+            <span>该时段余量不足，可先排队，有人取消后按顺序自动递补</span>
+            <el-button type="warning" plain :loading="joining" @click="doJoinWaitlist">加入候补队列</el-button>
+          </div>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="applyVisible = false">取消</el-button>
         <el-button type="primary" :loading="submitting" @click="doSubmit">提交预约</el-button>
       </template>
+    </el-dialog>
+
+    <!-- 我的候补队列 -->
+    <el-dialog v-model="waitlistVisible" title="我的候补" :width="isMobile ? '92%' : '660px'">
+      <el-table v-loading="waitlistLoading" :data="waitlistRows" stripe border>
+        <el-table-column label="实验室" prop="labName" min-width="150" />
+        <el-table-column label="日期" prop="reserveDate" width="110" />
+        <el-table-column label="时段" width="120">
+          <template #default="{ row }">{{ hhmm(row.startTime) }}-{{ hhmm(row.endTime) }}</template>
+        </el-table-column>
+        <el-table-column label="人数" prop="peopleCount" width="70" align="center" />
+        <el-table-column label="状态" width="90" align="center">
+          <template #default="{ row }">
+            <el-tag :type="waitStatusType(row.status)" size="small">{{ row.statusDesc }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="80" align="center">
+          <template #default="{ row }">
+            <el-button v-if="row.status === 'WAITING'" link type="danger" @click="doCancelWait(row)">取消</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-if="!waitlistLoading && !waitlistRows.length" description="暂无候补记录" :image-size="80" />
     </el-dialog>
 
     <!-- 详情对话框 -->
@@ -161,7 +194,10 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { reservationMine, reservationSubmit, reservationCancel, labList, slotAvailable } from '@/api'
+import {
+  reservationMine, reservationSubmit, reservationCancel, labList, slotAvailable,
+  waitlistJoin, waitlistMine, waitlistCancel
+} from '@/api'
 
 // 窄屏（<=640px）用卡片列表替代宽表格，避免固定操作列把单号/用途挤出可视区
 const isMobile = ref(window.innerWidth <= 640)
@@ -193,6 +229,12 @@ const applyRules = {
 // 详情
 const detailVisible = ref(false)
 const current = ref(null)
+
+// 候补队列
+const joining = ref(false)
+const waitlistVisible = ref(false)
+const waitlistLoading = ref(false)
+const waitlistRows = ref([])
 
 const statusTypeMap = {
   PENDING: 'warning', APPROVED: 'success', REJECTED: 'danger',
@@ -291,6 +333,20 @@ function slotLabel(s) {
   return `${base}  ${s.remainingPeople > 0 ? `余 ${s.remainingPeople} 人` : '已满'}`
 }
 
+// 余量不足（已约满或本次人数放不下）时才展示候补入口
+const needWaitlist = computed(() => {
+  const slot = selectedSlot.value
+  if (!slot) return false
+  if (slot.exclusive) return slot.occupied
+  if (slot.remainingPeople == null) return false
+  return applyForm.value.peopleCount > slot.remainingPeople
+})
+
+// 候补状态色调：等待中黄色、已递补绿色、已取消灰色、已失效红色
+function waitStatusType(status) {
+  return { WAITING: 'warning', PROMOTED: 'success', CANCELLED: 'info', EXPIRED: 'danger' }[status] || 'info'
+}
+
 function doSubmit() {
   applyFormRef.value && applyFormRef.value.validate(async (valid) => {
     if (!valid) return
@@ -327,6 +383,53 @@ function doCancel(row) {
     await reservationCancel(row.id, value)
     ElMessage.success('预约已取消')
     load()
+  }).catch(() => {})
+}
+
+/** 余量不足时加入候补：复用当前表单，提交后服务端会再校验是否真的约满 */
+function doJoinWaitlist() {
+  applyFormRef.value && applyFormRef.value.validate(async (valid) => {
+    if (!valid) return
+    const slot = availableSlots.value.find((s) => s.startTime === applyForm.value.startTime)
+    if (!slot) return
+    joining.value = true
+    try {
+      await waitlistJoin({
+        labId: applyForm.value.labId,
+        reserveDate: applyForm.value.reserveDate,
+        startTime: applyForm.value.startTime,
+        endTime: slot.endTime,
+        peopleCount: applyForm.value.peopleCount,
+        purpose: applyForm.value.purpose
+      })
+      ElMessage.success('已加入候补队列，有人释放容量后会自动递补')
+      applyVisible.value = false
+      resetForm()
+    } catch {
+      // 拦截器提示（例如仍有余额、重复排队）
+    } finally {
+      joining.value = false
+    }
+  })
+}
+
+async function openWaitlist() {
+  waitlistVisible.value = true
+  waitlistLoading.value = true
+  try {
+    waitlistRows.value = (await waitlistMine()) || []
+  } finally {
+    waitlistLoading.value = false
+  }
+}
+
+function doCancelWait(row) {
+  ElMessageBox.confirm(`确认取消「${row.labName}」${row.reserveDate} 的候补吗？`, '提示', {
+    type: 'warning', confirmButtonText: '取消候补', cancelButtonText: '再想想'
+  }).then(async () => {
+    await waitlistCancel(row.id)
+    ElMessage.success('已退出候补队列')
+    openWaitlist()
   }).catch(() => {})
 }
 
@@ -369,6 +472,21 @@ onUnmounted(() => {
 .people-tip {
   font-size: 12px;
   color: var(--ink-3);
+}
+
+/* 余量不足时的候补入口 */
+.waitlist-tip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px dashed rgba(230, 162, 60, 0.5);
+  background: rgba(230, 162, 60, 0.08);
+  font-size: 12px;
+  color: var(--ink-2);
 }
 
 /* ===== 窄屏卡片列表 ===== */

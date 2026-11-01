@@ -51,3 +51,6 @@ desktop.ini
 # 截图工具曾把临时路径直接写成文件名，落到了项目根目录
 UsersNebula*.png
 *.tmp
+# 报告生成工具的临时分享包与一次性排查产物
+.trae-html-share-packages/
+labwise-teardown/

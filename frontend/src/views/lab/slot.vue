@@ -139,12 +139,58 @@
         </div>
       </template>
     </div>
+
+    <!-- 闭馆日历：按日期覆盖上面按星期配置的开放时段 -->
+    <div class="glass-card form-card">
+      <div class="card-head">
+        <div class="page-title">
+          <el-icon><Calendar /></el-icon>
+          闭馆日历
+        </div>
+        <span class="closure-hint">节假日、考试周、临时维护等场景按日期停用，优先级高于星期时段配置</span>
+      </div>
+
+      <div class="closure-form">
+        <el-select v-model="closureForm.labId" style="width: 200px">
+          <el-option label="全部实验室" :value="0" />
+          <el-option v-for="l in labs" :key="l.id" :label="l.labName" :value="l.id" />
+        </el-select>
+        <el-date-picker
+          v-model="closureForm.dateRange"
+          type="daterange"
+          value-format="YYYY-MM-DD"
+          start-placeholder="开始日期"
+          end-placeholder="结束日期"
+          style="width: 260px"
+        />
+        <el-input v-model="closureForm.reason" placeholder="闭馆原因（如国庆假期）" style="width: 220px" />
+        <el-button type="primary" :loading="closureSaving" @click="addClosure">添加闭馆</el-button>
+      </div>
+
+      <el-table v-loading="closureLoading" :data="closures" stripe border class="slot-table">
+        <el-table-column label="实验室" min-width="150">
+          <template #default="{ row }">{{ row.labId ? labNameOf(row.labId) : '全部实验室' }}</template>
+        </el-table-column>
+        <el-table-column label="闭馆日期" min-width="200">
+          <template #default="{ row }">{{ row.startDate }} ~ {{ row.endDate }}</template>
+        </el-table-column>
+        <el-table-column label="原因" prop="reason" min-width="200" />
+        <el-table-column label="操作" width="90" align="center">
+          <template #default="{ row }">
+            <el-button link type="danger" @click="removeClosure(row)">删除</el-button>
+          </template>
+        </el-table-column>
+        <template #empty>
+          <el-empty description="暂无闭馆记录" :image-size="60" />
+        </template>
+      </el-table>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { labList, slotList, slotSave } from '@/api'
+import { labList, slotList, slotSave, closureList, closureAdd, closureDelete } from '@/api'
 
 // 窄屏（<=640px）用卡片列表替代表格，避免时段名称与时间被横向滚动挤掉
 const isMobile = ref(window.innerWidth <= 640)
@@ -235,6 +281,60 @@ async function loadSlots() {
   } finally {
     loading.value = false
   }
+  loadClosures()
+}
+
+/* ==================== 闭馆日历 ==================== */
+
+const closures = ref([])
+const closureLoading = ref(false)
+const closureSaving = ref(false)
+const closureForm = ref({ labId: 0, dateRange: [], reason: '' })
+
+function labNameOf(id) {
+  return labs.value.find((l) => l.id === id)?.labName || `#${id}`
+}
+
+async function loadClosures() {
+  if (!labs.value.length) return
+  closureLoading.value = true
+  try {
+    closures.value = (await closureList(currentLabId.value)) || []
+  } finally {
+    closureLoading.value = false
+  }
+}
+
+async function addClosure() {
+  const range = closureForm.value.dateRange
+  if (!range || range.length !== 2) {
+    ElMessage.warning('请选择闭馆日期区间')
+    return
+  }
+  closureSaving.value = true
+  try {
+    await closureAdd({
+      labId: closureForm.value.labId,
+      startDate: range[0],
+      endDate: range[1],
+      reason: closureForm.value.reason
+    })
+    ElMessage.success('闭馆日期已添加')
+    closureForm.value = { labId: closureForm.value.labId, dateRange: [], reason: '' }
+    loadClosures()
+  } finally {
+    closureSaving.value = false
+  }
+}
+
+function removeClosure(row) {
+  ElMessageBox.confirm(`确认删除 ${row.startDate} ~ ${row.endDate} 的闭馆记录吗？`, '提示', {
+    type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消'
+  }).then(async () => {
+    await closureDelete(row.id)
+    ElMessage.success('已删除')
+    loadClosures()
+  }).catch(() => {})
 }
 
 // 后端返回 HH:mm:ss，页面统一按 HH:mm 展示与提交（ISO_LOCAL_TIME 可直接解析）
@@ -419,6 +519,24 @@ onUnmounted(() => {
 .btn-row {
   display: flex;
   justify-content: flex-end;
+}
+
+/* ===== 闭馆日历 ===== */
+.form-card + .form-card {
+  margin-top: 14px;
+}
+
+.closure-hint {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.closure-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0 12px;
 }
 
 /* ===== 窄屏卡片列表 ===== */

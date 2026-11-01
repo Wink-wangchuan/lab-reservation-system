@@ -76,4 +76,7 @@ public class LabReservation extends BaseEntity {
 
     /** 完成时间 */
     private LocalDateTime completeTime;
+
+    /** 开始前提醒是否已发送：0未发 1已发（每条预约只提醒一次） */
+    private Integer reminderSent;
 }

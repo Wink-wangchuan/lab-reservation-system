@@ -10,11 +10,11 @@ import globals from 'globals'
  * 真正的格式统一交给 Prettier（见 .prettierrc.json）。
  */
 export default [
-  { ignores: ['dist/**', 'node_modules/**', 'public/**'] },
+  { ignores: ['dist/**', 'dist-protected*/**', 'node_modules/**', 'public/**'] },
   js.configs.recommended,
   ...pluginVue.configs['flat/essential'],
   {
-    files: ['**/*.{js,vue}'],
+    files: ['**/*.{js,mjs,vue}'],
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'module',

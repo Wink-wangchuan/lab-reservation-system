@@ -4,10 +4,12 @@ import com.lab.reservation.common.ResultCode;
 import com.lab.reservation.dto.CheckinVerifyDTO;
 import com.lab.reservation.entity.LabCheckin;
 import com.lab.reservation.entity.LabReservation;
+import com.lab.reservation.entity.SysUser;
 import com.lab.reservation.enums.CheckinStatus;
 import com.lab.reservation.exception.BusinessException;
 import com.lab.reservation.mapper.LabCheckinMapper;
 import com.lab.reservation.mapper.LabReservationMapper;
+import com.lab.reservation.mapper.SysUserMapper;
 import com.lab.reservation.security.LoginUser;
 import com.lab.reservation.security.SecurityUtil;
 import com.lab.reservation.service.NoticeService;
@@ -39,6 +41,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -70,6 +73,9 @@ class CheckinServiceImplTest {
     private NoticeService noticeService;
     @Mock
     private StatisticsService statisticsService;
+    /** 爽约信用：超时未签到需要更新用户计数 */
+    @Mock
+    private SysUserMapper sysUserMapper;
 
     @InjectMocks
     private CheckinServiceImpl checkinService;
@@ -82,9 +88,9 @@ class CheckinServiceImplTest {
      */
     @BeforeAll
     static void initEntityMetadata() {
-        TableInfoHelper.initTableInfo(
-                new MapperBuilderAssistant(new MybatisConfiguration(), ""),
-                LabReservation.class);
+        MapperBuilderAssistant assistant = new MapperBuilderAssistant(new MybatisConfiguration(), "");
+        TableInfoHelper.initTableInfo(assistant, LabReservation.class);
+        TableInfoHelper.initTableInfo(assistant, SysUser.class);
     }
 
     @BeforeEach
@@ -99,6 +105,18 @@ class CheckinServiceImplTest {
 
         securityUtil = mockStatic(SecurityUtil.class);
         securityUtil.when(SecurityUtil::getLoginUser).thenReturn(user);
+
+        // 爽约计数默认返回一个干净用户；未用到该桩的用例用 lenient 避免严格模式误报
+        lenient().when(sysUserMapper.selectById(any())).thenReturn(cleanUser());
+    }
+
+    /** 无爽约记录的普通用户 */
+    private SysUser cleanUser() {
+        SysUser user = new SysUser();
+        user.setId(USER_ID);
+        user.setRealName("李教授");
+        user.setNoShowCount(0);
+        return user;
     }
 
     @AfterEach

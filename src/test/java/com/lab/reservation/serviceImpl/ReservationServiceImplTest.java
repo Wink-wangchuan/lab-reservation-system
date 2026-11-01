@@ -5,20 +5,25 @@ import com.lab.reservation.dto.ApprovalDTO;
 import com.lab.reservation.dto.ReservationSubmitDTO;
 import com.lab.reservation.entity.Device;
 import com.lab.reservation.entity.LabApproval;
+import com.lab.reservation.entity.LabCheckin;
 import com.lab.reservation.entity.LabInfo;
 import com.lab.reservation.entity.LabReservation;
 import com.lab.reservation.entity.LabTimeSlot;
+import com.lab.reservation.entity.SysUser;
 import com.lab.reservation.enums.ReservationStatus;
 import com.lab.reservation.exception.BusinessException;
 import com.lab.reservation.mapper.DeviceMapper;
 import com.lab.reservation.mapper.LabApprovalMapper;
+import com.lab.reservation.mapper.LabCheckinMapper;
 import com.lab.reservation.mapper.LabInfoMapper;
 import com.lab.reservation.mapper.LabReservationMapper;
 import com.lab.reservation.mapper.LabTimeSlotMapper;
 import com.lab.reservation.mapper.SysRoleMapper;
+import com.lab.reservation.mapper.SysUserMapper;
 import com.lab.reservation.security.LoginUser;
 import com.lab.reservation.security.SecurityUtil;
 import com.lab.reservation.service.CheckinService;
+import com.lab.reservation.service.LabClosureService;
 import com.lab.reservation.service.NoticeService;
 import com.lab.reservation.service.StatisticsService;
 import com.lab.reservation.vo.ReservationVO;
@@ -44,6 +49,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -90,6 +96,15 @@ class ReservationServiceImplTest {
     private NoticeService noticeService;
     @Mock
     private SysRoleMapper roleMapper;
+    /** 爽约限制：提交前查询用户禁约截止时间 */
+    @Mock
+    private SysUserMapper sysUserMapper;
+    /** 开始前提醒需要排除已签到预约 */
+    @Mock
+    private LabCheckinMapper checkinMapper;
+    /** 闭馆日历：命中则拒绝预约 */
+    @Mock
+    private LabClosureService closureService;
 
     @InjectMocks
     private ReservationServiceImpl reservationService;
@@ -102,6 +117,18 @@ class ReservationServiceImplTest {
         currentUser = loginUser(STUDENT_ID, "张三", "STUDENT");
         securityUtil = mockStatic(SecurityUtil.class);
         securityUtil.when(SecurityUtil::getLoginUser).thenReturn(currentUser);
+        // 默认：账号无爽约限制、实验室未闭馆；个别用例需要时再覆盖
+        lenient().when(sysUserMapper.selectById(any())).thenReturn(unrestrictedUser());
+        lenient().when(closureService.findClosure(any(), any())).thenReturn(null);
+    }
+
+    /** 未被爽约限制的账号 */
+    private SysUser unrestrictedUser() {
+        SysUser user = new SysUser();
+        user.setId(STUDENT_ID);
+        user.setRealName("张三");
+        user.setNoShowCount(0);
+        return user;
     }
 
     @AfterEach

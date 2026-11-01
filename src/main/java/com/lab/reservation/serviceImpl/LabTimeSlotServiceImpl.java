@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.lab.reservation.common.OccupancyCalculator;
 import com.lab.reservation.common.ResultCode;
 import com.lab.reservation.dto.LabTimeSlotDTO;
+import com.lab.reservation.entity.LabClosure;
 import com.lab.reservation.entity.LabInfo;
 import com.lab.reservation.entity.LabReservation;
 import com.lab.reservation.entity.LabTimeSlot;
@@ -12,6 +13,7 @@ import com.lab.reservation.exception.BusinessException;
 import com.lab.reservation.mapper.LabInfoMapper;
 import com.lab.reservation.mapper.LabReservationMapper;
 import com.lab.reservation.mapper.LabTimeSlotMapper;
+import com.lab.reservation.service.LabClosureService;
 import com.lab.reservation.service.LabTimeSlotService;
 import com.lab.reservation.vo.AvailableSlotVO;
 import lombok.RequiredArgsConstructor;
@@ -42,6 +44,8 @@ public class LabTimeSlotServiceImpl implements LabTimeSlotService {
     private final LabTimeSlotMapper slotMapper;
     private final LabReservationMapper reservationMapper;
     private final LabInfoMapper labInfoMapper;
+    /** 闭馆日历：当日闭馆时直接拒绝查询 */
+    private final LabClosureService closureService;
 
     /** 不占用时段的状态 */
     private static final List<String> BANNED =
@@ -95,6 +99,14 @@ public class LabTimeSlotServiceImpl implements LabTimeSlotService {
 
     @Override
     public List<AvailableSlotVO> availableSlots(Long labId, LocalDate date) {
+        // 闭馆日历优先：节假日/临时维护当天直接告知原因，不再展示时段
+        LabClosure closure = closureService.findClosure(labId, date);
+        if (closure != null) {
+            throw new BusinessException(ResultCode.RESERVATION_NOT_ALLOW,
+                    "该实验室当日闭馆"
+                            + (closure.getReason() == null || closure.getReason().isBlank()
+                            ? "" : "（" + closure.getReason() + "）"));
+        }
         int weekDay = date.getDayOfWeek().getValue();
         // 当日（对应星期）启用时段
         List<LabTimeSlot> slots = slotMapper.selectList(new LambdaQueryWrapper<LabTimeSlot>()
