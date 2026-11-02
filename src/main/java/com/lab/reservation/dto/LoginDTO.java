@@ -21,4 +21,7 @@ public class LoginDTO {
     @Schema(description = "密码", example = "123456")
     @NotBlank(message = "密码不能为空")
     private String password;
+
+    @Schema(description = "是否勾选「7 天免登录」", example = "false")
+    private Boolean rememberMe;
 }

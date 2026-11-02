@@ -104,7 +104,7 @@ public class AuthServiceImpl implements AuthService {
         assertLoginable(user.getStatus());
         // 4. 登录成功，清零失败计数并签发令牌
         clearLoginFail(username);
-        return issueToken(user);
+        return issueToken(user, Boolean.TRUE.equals(loginDTO.getRememberMe()));
     }
 
     /**
@@ -159,7 +159,7 @@ public class AuthServiceImpl implements AuthService {
         SysUser user = resolveAccount(dto.getAccount());
         captchaService.verify(CaptchaScene.LOGIN, String.valueOf(user.getId()), dto.getCode());
         assertLoginable(user.getStatus());
-        return issueToken(user);
+        return issueToken(user, Boolean.TRUE.equals(dto.getRememberMe()));
     }
 
     @Override
@@ -238,8 +238,10 @@ public class AuthServiceImpl implements AuthService {
      * {@code JwtAuthenticationFilter} 命中该标记时不再建立认证，用户下次登录成功后由签发逻辑清除。</p>
      */
     private void revokeTokens(Long userId) {
+        // 吊销标记必须覆盖「最长的令牌有效期」（7 天免登录），否则长令牌会在标记过期后复活
+        long ttl = Math.max(jwtProperties.getExpiration(), jwtProperties.getRememberExpiration());
         redisTemplate.opsForValue().set(RedisKeyConstants.revokedKey(userId), 1,
-                jwtProperties.getExpiration(), TimeUnit.MILLISECONDS);
+                ttl, TimeUnit.MILLISECONDS);
     }
 
     /**
@@ -277,15 +279,17 @@ public class AuthServiceImpl implements AuthService {
 
     /**
      * 签发令牌：组装 LoginUser → 生成 JWT → 写 Redis（TTL 与令牌一致）→ 组装返回体
+     *
+     * @param rememberMe 是否「7 天免登录」，决定 JWT 有效期（8 小时 / 7 天）
      */
-    private LoginVO issueToken(SysUser user) {
+    private LoginVO issueToken(SysUser user, boolean rememberMe) {
         // 重新登录即视为已确认身份，清除密码变更时写入的令牌吊销标记
         redisTemplate.delete(RedisKeyConstants.revokedKey(user.getId()));
         LoginUser loginUser = permissionService.loadLoginUserByUserId(user.getId());
         if (loginUser == null) {
             throw new BusinessException(ResultCode.LOGIN_FAILED);
         }
-        String token = jwtUtil.generateToken(user.getId());
+        String token = jwtUtil.generateToken(user.getId(), rememberMe);
         long expireAt = jwtUtil.getExpirationDate(token).getTime();
         redisTemplate.opsForValue().set(
                 RedisKeyConstants.userKey(user.getId()),

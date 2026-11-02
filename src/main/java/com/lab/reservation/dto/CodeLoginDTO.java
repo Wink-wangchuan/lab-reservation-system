@@ -23,4 +23,7 @@ public class CodeLoginDTO {
     @NotBlank(message = "请填写验证码")
     @Pattern(regexp = "^\\d{6}$", message = "验证码为 6 位数字")
     private String code;
+
+    @Schema(description = "是否勾选「7 天免登录」", example = "false")
+    private Boolean rememberMe;
 }

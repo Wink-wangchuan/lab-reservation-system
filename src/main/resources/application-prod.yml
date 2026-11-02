@@ -58,7 +58,9 @@ knife4j:
 # JWT：密钥从环境变量注入，单元文件权限 600，不落仓库
 jwt:
   secret: ${JWT_SECRET:}
-  expiration: 86400000
+  # 普通登录令牌 8 小时；勾选「7 天免登录」时使用 remember-expiration
+  expiration: ${JWT_EXPIRATION:28800000}
+  remember-expiration: ${JWT_REMEMBER_EXPIRATION:604800000}
   header: Authorization
   prefix: "Bearer "
 

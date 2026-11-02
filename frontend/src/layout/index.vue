@@ -127,6 +127,40 @@ const drawerVisible = ref(false)
 const unread = ref(0)
 let timer = null
 
+// —— 登录态超时 ——
+// 普通登录为会话级（关闭浏览器退出）；这里再兜一层：30 分钟无操作自动退出，
+// 避免标签页长期挂着、人离开后被他人直接操作。
+const IDLE_LIMIT_MS = 30 * 60 * 1000
+const IDLE_EVENTS = ['mousemove', 'mousedown', 'keydown', 'wheel', 'touchstart', 'scroll']
+let idleTimer = null
+let lastActivityAt = 0
+
+function onIdleTimeout() {
+  if (!userStore.isLoggedIn) return
+  userStore.reset()
+  ElMessage.warning('超过 30 分钟未操作，已自动退出登录')
+  router.push('/login')
+}
+
+function resetIdleTimer() {
+  // 节流：mousemove/scroll 这类高频事件每秒最多重置一次
+  const ts = Date.now()
+  if (ts - lastActivityAt < 1000) return
+  lastActivityAt = ts
+  clearTimeout(idleTimer)
+  idleTimer = setTimeout(onIdleTimeout, IDLE_LIMIT_MS)
+}
+
+function bindIdleWatch() {
+  IDLE_EVENTS.forEach((evt) => window.addEventListener(evt, resetIdleTimer, { passive: true }))
+  resetIdleTimer()
+}
+
+function unbindIdleWatch() {
+  IDLE_EVENTS.forEach((evt) => window.removeEventListener(evt, resetIdleTimer))
+  clearTimeout(idleTimer)
+}
+
 // —— 顶栏时钟 ——
 const now = ref(new Date())
 let clockTimer = null
@@ -447,6 +481,7 @@ onMounted(() => {
   refreshWeather()
   weatherTimer = setInterval(refreshWeather, 30 * 60 * 1000)
   window.addEventListener('resize', trackWidth)
+  bindIdleWatch()
 })
 
 onBeforeUnmount(() => {
@@ -454,6 +489,7 @@ onBeforeUnmount(() => {
   if (clockTimer) clearInterval(clockTimer)
   if (weatherTimer) clearInterval(weatherTimer)
   window.removeEventListener('resize', trackWidth)
+  unbindIdleWatch()
 })
 </script>
 

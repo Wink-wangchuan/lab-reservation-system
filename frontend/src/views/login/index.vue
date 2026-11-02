@@ -22,6 +22,10 @@
               show-password
             />
           </el-form-item>
+          <el-form-item class="remember-item">
+            <el-checkbox v-model="rememberMe">7 天免登录</el-checkbox>
+            <span class="remember-tip">不勾选时关闭浏览器即退出</span>
+          </el-form-item>
           <el-button class="submit-btn" type="primary" :loading="loading" @click="onPasswordLogin">
             {{ loading ? '登录中...' : '登 录' }}
           </el-button>
@@ -53,6 +57,10 @@
               </el-button>
             </div>
           </el-form-item>
+          <el-form-item class="remember-item">
+            <el-checkbox v-model="rememberMe">7 天免登录</el-checkbox>
+            <span class="remember-tip">不勾选时关闭浏览器即退出</span>
+          </el-form-item>
           <el-button class="submit-btn" type="primary" :loading="loading" @click="onCodeLogin">
             {{ loading ? '登录中...' : '登 录' }}
           </el-button>
@@ -83,6 +91,8 @@ const { counting, text, start } = useCountdown(60)
 const activeTab = ref('password')
 const loading = ref(false)
 const sending = ref(false)
+/** 两种登录方式共用的「7 天免登录」选项，默认不勾选（会话级） */
+const rememberMe = ref(false)
 
 const pwdFormRef = ref()
 const codeFormRef = ref()
@@ -114,7 +124,7 @@ function onPasswordLogin() {
     if (!valid) return
     loading.value = true
     try {
-      await userStore.doLogin(pwdForm.value.username, pwdForm.value.password)
+      await userStore.doLogin(pwdForm.value.username, pwdForm.value.password, rememberMe.value)
       afterLogin()
     } catch {
       // 错误已由响应拦截器统一提示
@@ -160,7 +170,7 @@ function onCodeLogin() {
     if (!valid) return
     loading.value = true
     try {
-      await userStore.doLoginByCode(codeForm.value.account.trim(), codeForm.value.code.trim())
+      await userStore.doLoginByCode(codeForm.value.account.trim(), codeForm.value.code.trim(), rememberMe.value)
       afterLogin()
     } catch {
       // 错误已由响应拦截器统一提示
@@ -220,6 +230,22 @@ watch(activeTab, () => {
   background: var(--accent-gradient);
   border: none;
   box-shadow: 0 8px 20px rgba(91, 140, 255, 0.4);
+}
+
+.remember-item {
+  margin-bottom: 12px;
+
+  :deep(.el-checkbox__label) {
+    font-size: 13px;
+    color: var(--ink-3);
+  }
+}
+
+.remember-tip {
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--ink-3);
+  opacity: 0.7;
 }
 
 .link {

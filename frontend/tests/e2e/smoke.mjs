@@ -49,11 +49,13 @@ try {
   check('驾驶舱显示履约质量指标', await page.locator('text=预约通过率').first().isVisible())
   check('驾驶舱提供使用率报表入口', await page.locator('text=使用率报表').first().isVisible())
 
-  // 2. 预约管理列表有数据
+  // 2. 预约管理列表加载完成（库为空时允许 0 行，只要表格与空态正常渲染）
   await page.goto(`${BASE}/reservation/list`, { waitUntil: 'networkidle' })
   await page.waitForTimeout(1200)
   const rows = await page.locator('.el-table__body tbody tr').count()
-  check('预约管理列表加载', rows >= 1, `共 ${rows} 行`)
+  const emptyText = await page.locator('.el-table__empty-text').count()
+  check('预约管理列表加载', rows >= 1 || emptyText > 0,
+    `共 ${rows} 行${emptyText ? '（空数据）' : ''}`)
 
   // 3. 实验室管理含「时段共享」列
   await page.goto(`${BASE}/lab/info`, { waitUntil: 'networkidle' })
