@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LabWise 实验室预约</title>
+  <style>
+    body {
+      margin: 0;
+      height: 100vh;
+      display: grid;
+      place-items: center;
+      font-family: system-ui, "PingFang SC", sans-serif;
+      background: #f4f6fb;
+      color: #1f2a44;
+      text-align: center;
+    }
+    .card { padding: 24px; }
+    h1 { font-size: 18px; margin: 0 0 8px; }
+    p { color: #6b778c; font-size: 14px; margin: 0 0 16px; }
+    button {
+      height: 40px;
+      padding: 0 24px;
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      background: linear-gradient(135deg, #5b8cff, #7a6cff);
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>正在连接 LabWise 服务器</h1>
+    <p>请确认手机已接入 tailnet，且服务器在线。</p>
+    <button id="retry">重新加载</button>
+  </div>
+  <script>
+    document.getElementById('retry').addEventListener('click', () => location.reload())
+  </script>
+</body>
+</html>

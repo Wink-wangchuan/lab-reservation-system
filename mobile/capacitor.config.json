@@ -1,0 +1,13 @@
+{
+  "appId": "com.labwise.app",
+  "appName": "LabWise 实验室预约",
+  "webDir": "www",
+  "bundledWebRuntime": false,
+  "server": {
+    "url": "http://100.96.0.100:8092",
+    "cleartext": true
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}

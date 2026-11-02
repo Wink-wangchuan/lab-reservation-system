@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#F4F6FB"
+    android:padding="16dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="用户协议与隐私说明"
+        android:textColor="#1F2A44"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:paddingBottom="8dp" />
+
+    <WebView
+        android:id="@+id/eula_web"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:background="#FFFFFF" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="end"
+        android:paddingTop="12dp">
+
+        <Button
+            android:id="@+id/btn_decline"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="不同意并退出"
+            android:textColor="#43506B"
+            android:backgroundTint="#FFFFFF" />
+
+        <Button
+            android:id="@+id/btn_agree"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:text="同意并进入"
+            android:textColor="#FFFFFF"
+            android:backgroundTint="#5B8CFF" />
+    </LinearLayout>
+</LinearLayout>

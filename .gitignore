@@ -42,6 +42,18 @@ data/
 # 前端构建配置只含接口地址，需要入库
 !.env.production
 
+# ---------- 客户端打包产物 ----------
+# EXE/APK 发布件不入库，源码与构建脚本保留
+release/
+mobile/android/.gradle/
+mobile/android/build/
+mobile/android/app/build/
+mobile/android/local.properties
+mobile/android/keystore.properties
+mobile/android/app/*.jks
+# Gradle wrapper 是构建必需文件，不能被 *.jar 规则排除
+!mobile/android/gradle/wrapper/gradle-wrapper.jar
+
 # ---------- 操作系统 ----------
 .DS_Store
 Thumbs.db

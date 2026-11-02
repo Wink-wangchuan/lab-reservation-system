@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>用户协议与隐私说明</title>
+  <style>
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+      background: #f4f6fb;
+      color: #1f2a44;
+    }
+    .wrap {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 28px 26px 20px;
+    }
+    h1 {
+      font-size: 22px;
+      margin: 0 0 6px;
+    }
+    .meta {
+      font-size: 13px;
+      color: #6b778c;
+      margin-bottom: 18px;
+    }
+    .paper {
+      background: #fff;
+      border: 1px solid #e3e8f2;
+      border-radius: 12px;
+      padding: 22px 24px;
+      font-size: 14px;
+      line-height: 1.8;
+      max-height: 56vh;
+      overflow-y: auto;
+    }
+    .paper h2 {
+      font-size: 15px;
+      margin: 18px 0 8px;
+    }
+    .paper h2:first-child { margin-top: 0; }
+    .paper p { margin: 0 0 8px; }
+    .actions {
+      margin-top: 18px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+    .check {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .check input { width: 16px; height: 16px; }
+    .spacer { flex: 1; }
+    button {
+      height: 38px;
+      padding: 0 22px;
+      border-radius: 8px;
+      border: 1px solid #d5dbe8;
+      background: #fff;
+      color: #43506b;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    button.primary {
+      border: none;
+      color: #fff;
+      background: linear-gradient(135deg, #5b8cff, #7a6cff);
+      box-shadow: 0 6px 16px rgba(91, 140, 255, 0.35);
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+    .hint {
+      font-size: 12px;
+      color: #8a94a6;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>LabWise 智慧实验室预约管理系统</h1>
+    <div class="meta">用户协议与隐私说明 · 生效日期：2026 年 11 月 2 日</div>
+
+    <div class="paper" id="paper">
+      <h2>一、服务说明</h2>
+      <p>1.1 本客户端是「LabWise 智慧实验室预约管理系统」的访问入口，不内置服务器与本地数据库，使用前需连接部署方指定的服务器。</p>
+      <p>1.2 系统提供实验室信息查询、开放时段与闭馆安排、预约提交 / 审批 / 改期 / 取消、签到核销、设备报修、消息通知、统计报表及 AI 助手等功能。</p>
+      <p>1.3 服务器地址、数据与账号策略由部署方维护；客户端仅负责界面呈现与网络访问。</p>
+
+      <h2>二、账号与安全</h2>
+      <p>2.1 账号由管理员分配，或由用户自助注册并经管理员审核、分配角色后方可登录。请勿与他人共用账号。</p>
+      <p>2.2 请妥善保管密码与核销码。因密码泄露、转借账号或核销码外传造成的损失，由使用者自行承担。</p>
+      <p>2.3 勾选「记住我」会将账号和密码保存在本机浏览器的本地存储中（仅做 Base64 编码，并非加密）。公用电脑请勿勾选，使用后请主动退出并清除浏览器数据。</p>
+      <p>2.4 发现异常登录、密码泄露或账号被冒用，请立即修改密码并联系系统管理员。</p>
+
+      <h2>三、使用规范</h2>
+      <p>3.1 本系统仅用于教学、科研与实验室管理相关用途。禁止用于违法活动，禁止对系统进行攻击、扫描、爬取、注入或干扰正常运行。</p>
+      <p>3.2 禁止提交虚假预约、恶意占位、批量注册、冒用他人身份或伪造签到。</p>
+      <p>3.3 禁止尝试绕过权限校验、接口限流、幂等控制、审批规则或容量限制。</p>
+      <p>3.4 对违规账号，管理员有权冻结账号、取消预约、限制预约权限，并保留追究责任的权利。</p>
+
+      <h2>四、预约与信用</h2>
+      <p>4.1 预约须遵守实验室容量、时段人数上限、闭馆安排、设备故障锁定及同人同时段唯一等规则。</p>
+      <p>4.2 预约开始后超时未签到记为爽约；连续爽约 3 次将限制预约权限 7 天，按时签到可清零连续爽约次数。</p>
+      <p>4.3 取消与改期须在规则允许的时间范围内操作；已开始或已结束的预约不能取消或改期。</p>
+
+      <h2>五、隐私与数据</h2>
+      <p>5.1 系统采集账号、姓名、手机号 / 邮箱、预约与签到记录、报修记录、操作日志等必要信息，用于身份识别、预约履约、信用管理与安全审计。</p>
+      <p>5.2 数据保存在部署方服务器。本客户端不会采集通讯录、相册、精确位置等与业务无关的信息。</p>
+      <p>5.3 除法律法规要求或安全管理需要外，不向第三方披露个人信息。</p>
+      <p>5.4 操作日志保留期限由部署方配置（默认 90 天），到期自动清理；数据库按部署方策略定期备份。</p>
+
+      <h2>六、服务可用性与免责</h2>
+      <p>6.1 服务依赖网络、服务器、数据库与缓存。维护、升级、网络中断或依赖故障可能导致短时不可用。</p>
+      <p>6.2 客户端按「现状」提供，不对因网络环境、设备兼容性、第三方服务或不可抗力导致的中断承担责任。</p>
+      <p>6.3 重要数据以服务器备份为准；客户端不承担数据恢复责任。</p>
+
+      <h2>七、知识产权</h2>
+      <p>7.1 系统软件、界面、文档及相关标识归开发者所有。未经许可，不得反编译、二次分发或用于商业目的。</p>
+      <p>7.2 用户提交的预约用途、报修描述等内容，授权系统在服务范围内存储、展示与统计。</p>
+
+      <h2>八、协议变更与终止</h2>
+      <p>8.1 协议更新时会在客户端或系统内提示；继续使用即视为接受更新后的内容。</p>
+      <p>8.2 用户可随时停止使用并申请注销账号；违规账号可被暂停或终止服务。</p>
+
+      <h2>九、其他</h2>
+      <p>9.1 本协议适用中华人民共和国法律。</p>
+      <p>9.2 争议优先协商解决；协商不成，提交部署方所在地有管辖权的人民法院。</p>
+      <p>9.3 联系方式：系统管理员（见系统内「帮助 / 关于」）。</p>
+    </div>
+
+    <div class="actions" id="actions">
+      <label class="check">
+        <input type="checkbox" id="agree" />
+        我已阅读并同意《用户协议与隐私说明》
+      </label>
+      <div class="spacer"></div>
+      <button id="decline">不同意并退出</button>
+      <button class="primary" id="accept" disabled>同意并进入</button>
+    </div>
+    <div class="hint" id="hint">首次使用需同意协议；同意结果仅保存在本机。</div>
+  </div>
+
+  <script>
+    // 只读模式（从菜单打开协议时）隐藏操作区
+    const readonly = new URLSearchParams(location.search).get('readonly') === '1'
+    if (readonly) {
+      document.getElementById('actions').style.display = 'none'
+      document.getElementById('hint').style.display = 'none'
+      document.getElementById('paper').style.maxHeight = '72vh'
+    }
+
+    const agree = document.getElementById('agree')
+    const acceptBtn = document.getElementById('accept')
+    agree.addEventListener('change', () => {
+      acceptBtn.disabled = !agree.checked
+    })
+    acceptBtn.addEventListener('click', () => {
+      if (!agree.checked) return
+      window.labwise?.accept()
+    })
+    document.getElementById('decline').addEventListener('click', () => {
+      window.labwise?.decline()
+    })
+  </script>
+</body>
+</html>
