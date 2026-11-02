@@ -37,17 +37,11 @@ public class JwtUtil {
 
     /**
      * 生成 Token（subject = 用户ID）
-     *
-     * @param userId     用户ID
-     * @param rememberMe true 表示「7 天免登录」，false 为普通会话令牌（默认 8 小时）
      */
-    public String generateToken(Long userId, boolean rememberMe) {
+    public String generateToken(Long userId) {
         LocalDateTime now = LocalDateTime.now();
         Date issuedAt = toDate(now);
-        long ttlMillis = rememberMe
-                ? jwtProperties.getRememberExpiration()
-                : jwtProperties.getExpiration();
-        Date expiration = toDate(now.plusNanos(ttlMillis * 1_000_000));
+        Date expiration = toDate(now.plusNanos(jwtProperties.getExpiration() * 1_000_000));
         return Jwts.builder()
                 .subject(String.valueOf(userId))     // 会话主体：用户ID
                 .issuedAt(issuedAt)                  // 签发时间

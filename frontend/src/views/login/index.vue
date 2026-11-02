@@ -23,8 +23,8 @@
             />
           </el-form-item>
           <el-form-item class="remember-item">
-            <el-checkbox v-model="rememberMe">7 天免登录</el-checkbox>
-            <span class="remember-tip">不勾选时关闭浏览器即退出</span>
+            <el-checkbox v-model="rememberMe">记住我</el-checkbox>
+            <span class="remember-tip">记住账号密码，下次自动填充</span>
           </el-form-item>
           <el-button class="submit-btn" type="primary" :loading="loading" @click="onPasswordLogin">
             {{ loading ? '登录中...' : '登 录' }}
@@ -57,10 +57,6 @@
               </el-button>
             </div>
           </el-form-item>
-          <el-form-item class="remember-item">
-            <el-checkbox v-model="rememberMe">7 天免登录</el-checkbox>
-            <span class="remember-tip">不勾选时关闭浏览器即退出</span>
-          </el-form-item>
           <el-button class="submit-btn" type="primary" :loading="loading" @click="onCodeLogin">
             {{ loading ? '登录中...' : '登 录' }}
           </el-button>
@@ -80,6 +76,7 @@ import { ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { sendCaptcha } from '@/api'
+import { getRememberedAccount, setRememberedAccount, clearRememberedAccount } from '@/utils/auth'
 import AuthShell from '@/components/AuthShell.vue'
 import { useCountdown } from '@/utils/useCountdown'
 
@@ -91,12 +88,17 @@ const { counting, text, start } = useCountdown(60)
 const activeTab = ref('password')
 const loading = ref(false)
 const sending = ref(false)
-/** 两种登录方式共用的「7 天免登录」选项，默认不勾选（会话级） */
-const rememberMe = ref(false)
 
 const pwdFormRef = ref()
 const codeFormRef = ref()
-const pwdForm = ref({ username: '', password: '' })
+/** 「记住我」读取到的账号密码；未保存时为 null */
+const remembered = getRememberedAccount()
+/** 仅密码登录使用：记住账号密码（不保持登录态），有保存记录时默认勾选 */
+const rememberMe = ref(!!remembered)
+const pwdForm = ref({
+  username: remembered?.username || '',
+  password: remembered?.password || ''
+})
 const codeForm = ref({ account: '', code: '' })
 
 const pwdRules = {
@@ -124,7 +126,12 @@ function onPasswordLogin() {
     if (!valid) return
     loading.value = true
     try {
-      await userStore.doLogin(pwdForm.value.username, pwdForm.value.password, rememberMe.value)
+      await userStore.doLogin(pwdForm.value.username, pwdForm.value.password)
+      if (rememberMe.value) {
+        setRememberedAccount(pwdForm.value.username, pwdForm.value.password)
+      } else {
+        clearRememberedAccount()
+      }
       afterLogin()
     } catch {
       // 错误已由响应拦截器统一提示
@@ -170,7 +177,7 @@ function onCodeLogin() {
     if (!valid) return
     loading.value = true
     try {
-      await userStore.doLoginByCode(codeForm.value.account.trim(), codeForm.value.code.trim(), rememberMe.value)
+      await userStore.doLoginByCode(codeForm.value.account.trim(), codeForm.value.code.trim())
       afterLogin()
     } catch {
       // 错误已由响应拦截器统一提示

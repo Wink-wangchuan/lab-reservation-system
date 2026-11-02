@@ -1,59 +1,70 @@
-// Token 存取管理
+// Token 与「记住我」存取管理
 //
 // 登录态策略：
-//   - 默认「会话级」：token/user 存 sessionStorage，关闭浏览器（标签页结束）即退出；
-//   - 勾选「7 天免登录」：改存 localStorage，浏览器重启后仍保持登录；
-//   - 读取时两种存储都查，保证从「记住我」切换后不会读到旧值。
+//   - 令牌只存 sessionStorage，关闭浏览器即退出；页面连续 1 小时无操作也会自动退出。
+//   - 「记住我」只记住账号密码（localStorage），下次打开登录页自动回填，不等于保持登录态。
 const TOKEN_KEY = 'labwise_token'
 const USER_KEY = 'labwise_user'
-const REMEMBER_KEY = 'labwise_remember'
+const REMEMBER_KEY = 'labwise_remember_account'
 
-function stores() {
-  return [sessionStorage, localStorage]
+// 账号密码做一层 Base64 编码，避免明文直读；注意这不是加密，仅用于本地便捷回填
+function encode(text) {
+  return btoa(encodeURIComponent(text))
+}
+
+function decode(text) {
+  try {
+    return decodeURIComponent(atob(text))
+  } catch {
+    return ''
+  }
 }
 
 export function getToken() {
-  for (const store of stores()) {
-    const token = store.getItem(TOKEN_KEY)
-    if (token) return token
-  }
-  return null
+  return sessionStorage.getItem(TOKEN_KEY)
 }
 
-export function setToken(token, remember = false) {
+export function setToken(token) {
   removeToken()
-  const store = remember ? localStorage : sessionStorage
-  store.setItem(TOKEN_KEY, token)
-  // 记录本次登录是否勾选「记住我」，供页面提示与后续写入用户信息时复用
-  store.setItem(REMEMBER_KEY, remember ? '1' : '0')
-}
-
-export function isRemembered() {
-  return sessionStorage.getItem(REMEMBER_KEY) === '1' || localStorage.getItem(REMEMBER_KEY) === '1'
+  sessionStorage.setItem(TOKEN_KEY, token)
 }
 
 export function removeToken() {
-  for (const store of stores()) {
-    store.removeItem(TOKEN_KEY)
-    store.removeItem(USER_KEY)
-    store.removeItem(REMEMBER_KEY)
-  }
+  sessionStorage.removeItem(TOKEN_KEY)
+  sessionStorage.removeItem(USER_KEY)
 }
 
 export function getUser() {
-  for (const store of stores()) {
-    const raw = store.getItem(USER_KEY)
-    if (!raw) continue
-    try {
-      return JSON.parse(raw)
-    } catch {
-      // 缓存损坏时继续查另一个存储
-    }
+  try {
+    return JSON.parse(sessionStorage.getItem(USER_KEY) || 'null')
+  } catch {
+    return null
   }
-  return null
 }
 
 export function setUser(user) {
-  const store = isRemembered() ? localStorage : sessionStorage
-  store.setItem(USER_KEY, JSON.stringify(user))
+  sessionStorage.setItem(USER_KEY, JSON.stringify(user))
+}
+
+/** 保存「记住我」的账号密码 */
+export function setRememberedAccount(username, password) {
+  localStorage.setItem(REMEMBER_KEY, JSON.stringify({
+    username: encode(username),
+    password: encode(password)
+  }))
+}
+
+/** 读取「记住我」的账号密码；未保存时返回 null */
+export function getRememberedAccount() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(REMEMBER_KEY) || 'null')
+    if (!raw || !raw.username) return null
+    return { username: decode(raw.username), password: decode(raw.password) }
+  } catch {
+    return null
+  }
+}
+
+export function clearRememberedAccount() {
+  localStorage.removeItem(REMEMBER_KEY)
 }

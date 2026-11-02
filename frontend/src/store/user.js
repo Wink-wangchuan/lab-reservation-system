@@ -20,27 +20,25 @@ export const useUserStore = defineStore('user', {
   },
 
   actions: {
-    async doLogin(username, password, rememberMe = false) {
-      const data = await loginApi({ username, password, rememberMe })
-      return this.acceptLogin(data, rememberMe)
+    async doLogin(username, password) {
+      const data = await loginApi({ username, password })
+      return this.acceptLogin(data)
     },
 
     /**
      * 验证码登录：账号可为用户名或手机号
      */
-    async doLoginByCode(account, code, rememberMe = false) {
-      const data = await loginByCodeApi({ account, code, rememberMe })
-      return this.acceptLogin(data, rememberMe)
+    async doLoginByCode(account, code) {
+      const data = await loginByCodeApi({ account, code })
+      return this.acceptLogin(data)
     },
 
     /**
      * 两种登录方式共用的落地流程：写入令牌 → 拉取当前用户信息
-     *
-     * @param rememberMe true 时令牌存 localStorage（7 天免登录），否则存 sessionStorage（会话级）
      */
-    async acceptLogin(data, rememberMe = false) {
+    async acceptLogin(data) {
       this.token = data.token
-      setToken(data.token, rememberMe)
+      setToken(data.token)
       await this.fetchInfo()
       return data
     },

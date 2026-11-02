@@ -128,9 +128,9 @@ const unread = ref(0)
 let timer = null
 
 // —— 登录态超时 ——
-// 普通登录为会话级（关闭浏览器退出）；这里再兜一层：30 分钟无操作自动退出，
+// 登录态为会话级（关闭浏览器退出）；这里再兜一层：1 小时无操作自动退出，
 // 避免标签页长期挂着、人离开后被他人直接操作。
-const IDLE_LIMIT_MS = 30 * 60 * 1000
+const IDLE_LIMIT_MS = 60 * 60 * 1000
 const IDLE_EVENTS = ['mousemove', 'mousedown', 'keydown', 'wheel', 'touchstart', 'scroll']
 let idleTimer = null
 let lastActivityAt = 0
@@ -138,7 +138,7 @@ let lastActivityAt = 0
 function onIdleTimeout() {
   if (!userStore.isLoggedIn) return
   userStore.reset()
-  ElMessage.warning('超过 30 分钟未操作，已自动退出登录')
+  ElMessage.warning('超过 1 小时未操作，已自动退出登录')
   router.push('/login')
 }
 

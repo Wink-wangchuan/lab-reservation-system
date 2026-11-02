@@ -22,11 +22,8 @@ public class JwtProperties {
     /** 签名密钥（HS256，生产环境务必替换为强随机串） */
     private String secret;
 
-    /** 有效期（毫秒）：普通登录，默认 8 小时（前端同时按会话级存储） */
+    /** 有效期（毫秒）：默认 8 小时（前端按会话级存储，关闭浏览器即退出） */
     private Long expiration = 28_800_000L;
-
-    /** 「7 天免登录」有效期（毫秒），默认 7 天 */
-    private Long rememberExpiration = 604_800_000L;
 
     /** 请求头名称 */
     private String header;
