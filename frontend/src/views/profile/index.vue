@@ -109,6 +109,20 @@
             </el-tab-pane>
           </el-tabs>
         </div>
+
+        <!-- 仅在桌面/Android 客户端内显示：调用原生检查更新 -->
+        <div v-if="isClientApp" class="glass-card update-card">
+          <div class="page-title">
+            <el-icon><Refresh /></el-icon>
+            客户端更新
+          </div>
+          <p class="update-tip">
+            当前正在客户端中运行。检查服务器上的最新安装包，发现新版本会提示下载并安装，无需再前往 GitHub。
+          </p>
+          <el-button type="primary" plain @click="checkUpdate">
+            <el-icon><Refresh /></el-icon> 检查更新
+          </el-button>
+        </div>
       </div>
     </div>
   </div>
@@ -127,6 +141,21 @@ const userStore = useUserStore()
 // 不展示对应按钮，避免点进去落在无权页面上
 const canReserve = computed(() => userStore.hasPerm('reservation:submit'))
 const canCheckin = computed(() => userStore.hasPerm('checkin:mine'))
+
+// 桌面端由 preload 暴露 labwise.checkUpdate；Android 端由 WebView 注入 LabWiseNative
+const isClientApp = computed(() =>
+  typeof window !== 'undefined' &&
+  (typeof window.LabWiseNative?.checkUpdate === 'function' ||
+    typeof window.labwise?.checkUpdate === 'function')
+)
+
+function checkUpdate() {
+  if (typeof window.LabWiseNative?.checkUpdate === 'function') {
+    window.LabWiseNative.checkUpdate()
+  } else if (typeof window.labwise?.checkUpdate === 'function') {
+    window.labwise.checkUpdate()
+  }
+}
 
 const loading = ref(false)
 const profile = ref({})
@@ -340,6 +369,24 @@ onMounted(load)
   flex-direction: column;
   gap: 16px;
   min-width: 0;
+}
+
+.update-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+
+  .el-button {
+    margin-left: 0;
+  }
+}
+
+.update-tip {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--ink-3);
 }
 
 .stat-grid {

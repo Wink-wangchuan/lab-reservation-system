@@ -4,5 +4,6 @@ const { contextBridge, ipcRenderer } = require('electron')
 contextBridge.exposeInMainWorld('labwise', {
   accept: () => ipcRenderer.invoke('eula:accept'),
   decline: () => ipcRenderer.invoke('eula:decline'),
-  retry: () => ipcRenderer.invoke('app:retry')
+  retry: () => ipcRenderer.invoke('app:retry'),
+  checkUpdate: () => ipcRenderer.invoke('app:check-update')
 })

@@ -1,0 +1,20 @@
+{
+  "windows": {
+    "version": "4.5.0",
+    "notes": "新增应用内检查更新；修复若干体验问题。",
+    "fileName": "LabWise-Setup-4.5.0.exe",
+    "size": 0,
+    "sha256": "",
+    "fallbackUrl": "https://github.com/Wink-wangchuan/lab-reservation-system/releases/download/v4.5.0/LabWise-Setup-4.5.0.exe",
+    "force": false
+  },
+  "android": {
+    "version": "4.5.0",
+    "notes": "新增应用内检查更新；优化系统栏适配。",
+    "fileName": "LabWise-4.5.0.apk",
+    "size": 0,
+    "sha256": "",
+    "fallbackUrl": "https://github.com/Wink-wangchuan/lab-reservation-system/releases/download/v4.5.0/LabWise-4.5.0.apk",
+    "force": false
+  }
+}

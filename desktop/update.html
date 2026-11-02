@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>正在下载更新</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(900px 500px at 10% 0%, #e6edff, transparent 60%),
+          linear-gradient(160deg, #eef3ff, #f6f4ff 55%, #eef6fe);
+        font-family: 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+        color: #1c2540;
+      }
+      .card {
+        width: 360px;
+        padding: 22px 24px;
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.72);
+        border: 1px solid rgba(255, 255, 255, 0.7);
+        box-shadow: 0 16px 50px rgba(60, 80, 180, 0.16);
+        text-align: center;
+      }
+      h1 { margin: 0 0 6px; font-size: 16px; }
+      .sub { margin: 0 0 16px; font-size: 12px; color: #8a94b8; }
+      .bar {
+        height: 10px;
+        border-radius: 999px;
+        background: rgba(140, 150, 200, 0.18);
+        overflow: hidden;
+      }
+      .fill {
+        height: 100%;
+        width: 0;
+        border-radius: inherit;
+        background: linear-gradient(135deg, #5b8cff, #7a5bff);
+        transition: width 0.2s ease;
+      }
+      .pct { margin: 10px 0 0; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+      .tip { margin: 8px 0 0; font-size: 11px; color: #8a94b8; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>正在下载更新</h1>
+      <p class="sub" id="sub">LabWise 实验室预约系统</p>
+      <div class="bar"><div class="fill" id="fill"></div></div>
+      <p class="pct" id="pct">0%</p>
+      <p class="tip">下载完成后会提示安装，请勿关闭窗口</p>
+    </div>
+    <script>
+      const version = window.updateWin?.version
+      const sub = document.getElementById('sub')
+      const fill = document.getElementById('fill')
+      const pct = document.getElementById('pct')
+      if (version) sub.textContent = `LabWise 实验室预约系统 v${version}`
+      window.updateWin?.onProgress(({ percent, received, total }) => {
+        fill.style.width = `${percent}%`
+        pct.textContent = total > 0
+          ? `${percent}% · ${(received / 1024 / 1024).toFixed(1)} / ${(total / 1024 / 1024).toFixed(1)} MB`
+          : `${(received / 1024 / 1024).toFixed(1)} MB`
+      })
+    </script>
+  </body>
+</html>

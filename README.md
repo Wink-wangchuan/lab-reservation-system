@@ -745,7 +745,7 @@ zcat ~/lab-backup/lab_reservation_YYYYmmdd_HHMM.sql.gz | mysql -uroot -p lab_res
 
 ### Windows 安装包（EXE）
 
-- 产物：`release/LabWise-Setup-1.0.0.exe`（NSIS，按用户安装，可自选目录，创建桌面与开始菜单快捷方式）
+- 产物：`release/LabWise-Setup-4.5.0.exe`（NSIS，按用户安装，可自选目录，创建桌面与开始菜单快捷方式）
 - 首次启动强制展示《用户协议与隐私说明》，必须勾选同意才能进入；之后可在菜单「应用 → 用户协议与隐私说明」再次查看
 - 服务器地址默认 `http://100.96.0.100:8092`，可用环境变量 `LABWISE_SERVER` 覆盖后重启客户端
 - 连接失败时显示本地错误页与「重新连接」按钮，不会白屏
@@ -763,7 +763,7 @@ npm run dist        # 产物输出到 ../release
 
 ### Android APK
 
-- 产物：`release/LabWise-1.0.0.apk`（release 签名，`minSdk 23 / targetSdk 35`，约 3 MB）
+- 产物：`release/LabWise-4.5.0.apk`（release 签名，`minSdk 23 / targetSdk 35`，约 3 MB）
 - 首次启动为原生协议页（内容与桌面端同一份 `assets/eula.html`），同意后才进入 WebView
 - 已开启明文 http 访问（`usesCleartextTraffic=true`），无需 HTTPS 即可连接 tailnet 服务器
 - 修改服务器地址：编辑 `mobile/capacitor.config.json` 的 `server.url`，执行 `npx cap sync android` 后重新构建
@@ -778,6 +778,19 @@ gradlew.bat assembleRelease     # 需要 ANDROID_HOME 与 JDK 17+
 ```
 
 - 签名文件 `mobile/android/keystore.properties` 与 `*.jks` 已在 `.gitignore` 中；后续升级必须沿用同一签名，否则需要先卸载再安装
+
+### 客户端应用内更新（4.5.0+）
+
+- **入口**：启动后自动检查一次；Windows 端还可在菜单「帮助 → 检查更新…」手动触发，
+  Android/Windows 均可在「个人中心 → 客户端更新」点击「检查更新」
+- **版本源**：优先请求服务器 `/api/app/update`，服务器不可用时自动回退 GitHub Releases；
+  下载失败也会按 `fallbackUrl` 回退
+- **服务器托管**：清单与安装包放在后端工作目录的 `updates/`（`manifest.json` + exe/apk），
+  接口为 `GET /api/app/update?platform=windows|android` 与 `GET /api/app/download/{platform}`，匿名可访问
+- **更新策略**：默认非强制，可「稍后提醒」或「忽略此版本」；SHA-256 校验防止下载损坏
+- **注意**：1.0.0 旧客户端没有更新模块，需要手动安装一次 4.5.0 后才能使用应用内更新
+- 发版时更新 `updates/manifest.json` 的 `version / fileName / size / sha256 / fallbackUrl`，
+  详细步骤见 [deploy/tailnet/README.md](deploy/tailnet/README.md)
 
 ## 版本里程碑
 
@@ -811,6 +824,7 @@ gradlew.bat assembleRelease     # 需要 ANDROID_HOME 与 JDK 17+
 | v4.2 | 登录态策略 | 默认改为会话级（`sessionStorage`，关闭浏览器即退出）+ 登录页可选「7 天免登录」（`localStorage` + 7 天 JWT）；普通令牌 8 小时；连续 30 分钟无操作自动退出；吊销标记 TTL 覆盖最长令牌；知识库补 1 条（`upgrade_v4.2.sql`） |
 | v4.3 | 登录态与记住我调整 | 取消「7 天免登录」：令牌统一存 `sessionStorage`（关闭浏览器即退出），JWT 固定 8 小时；「记住我」改为仅记住账号密码并在登录页自动填充（Base64 编码存储）；空闲超时统一为 1 小时；同步知识库 30111（`upgrade_v4.3.sql`） |
 | v4.4 | 客户端打包 | 新增 Electron 桌面客户端（NSIS 安装包，首启强制用户协议、连接失败错误页、菜单可复查协议）与 Android WebView APK（原生协议页、明文 http、release 签名）；协议文本 EXE/APK 共用 `desktop/eula.html` |
+| v4.5 | 应用内更新 | 客户端统一 4.5.0 版本：启动自动检查 + 手动检查、服务器托管版本清单与安装包、GitHub Releases 兜底、SHA-256 校验、可稍后/忽略；Android 下载后调起系统安装器 |
 
 各版本的详细改动与踩坑记录见 `deploy/tailnet/README.md`。
 

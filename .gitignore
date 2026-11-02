@@ -45,6 +45,8 @@ data/
 # ---------- 客户端打包产物 ----------
 # EXE/APK 发布件不入库，源码与构建脚本保留
 release/
+# 服务器托管的客户端更新包与运行时清单（发布件，不入库）
+updates/
 mobile/android/.gradle/
 mobile/android/build/
 mobile/android/app/build/

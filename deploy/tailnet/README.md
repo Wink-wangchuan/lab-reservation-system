@@ -284,6 +284,52 @@ ssh tailnet-server 'rm -rf ~/lab-reservation/dist && tar -xzf /tmp/lab-dist.tgz 
 
 
 
+## v4.5 客户端应用内更新
+
+**接口**（匿名可访问，登录前也可检查）：
+
+| 端点 | 说明 |
+| --- | --- |
+| `GET /api/app/update?platform=windows` | 返回服务器清单里的最新版本、说明、大小、SHA-256、下载地址与 GitHub 兜底地址 |
+| `GET /api/app/update?platform=android` | 同上（Android） |
+| `GET /api/app/download/windows` | 下载 exe（`application/octet-stream`，支持 Range） |
+| `GET /api/app/download/android` | 下载 apk（`application/vnd.android.package-archive`） |
+
+清单与安装包放在后端工作目录 `~/lab-reservation/updates/`，后端按清单文件修改时间缓存；
+文件名只允许清单里声明的文件，且做目录穿越校验。
+
+**发版步骤**：
+
+1. 构建 `LabWise-Setup-<版本>.exe` 与 `LabWise-<版本>.apk`；
+2. 计算大小与 SHA-256：
+   ```bash
+   sha256sum LabWise-Setup-4.5.0.exe LabWise-4.5.0.apk
+   ```
+3. 上传到服务器：
+   ```bash
+   scp LabWise-Setup-4.5.0.exe LabWise-4.5.0.apk manifest.json tailnet-server:/tmp/
+   ssh tailnet-server 'mkdir -p ~/lab-reservation/updates && mv /tmp/LabWise-* /tmp/manifest.json ~/lab-reservation/updates/'
+   ```
+4. `manifest.json` 同时写服务器下载与 GitHub 兜底：
+   - `version`：必须大于客户端当前版本才会提示；
+   - `fileName / size / sha256`：与实际文件一致（sha256 为空则客户端跳过校验）；
+   - `fallbackUrl`：GitHub Release 资产地址；
+   - `force`：预留字段，当前为 `false`（非强制更新）。
+5. 在 GitHub 创建同名 Release 并上传 exe/apk（作为兜底源）；
+6. 验证：
+   ```bash
+   curl -sS 'http://100.96.0.100:8091/api/app/update?platform=windows'
+   curl -sSI 'http://100.96.0.100:8091/api/app/download/windows' | sed -n '1,12p'
+   ```
+
+**客户端行为**：
+
+- 启动后自动检查一次；菜单「帮助 → 检查更新…」或个人中心「客户端更新」可手动检查；
+- 非强制：可「稍后提醒」或「忽略此版本」；忽略的版本不会在自动检查时再次打扰；
+- Windows 下载后校验 SHA-256，调起 NSIS 安装器；Android 下载后校验并调起系统安装器；
+- Android 首次更新需要允许「安装未知应用」（`REQUEST_INSTALL_PACKAGES`）；
+- **1.0.0 旧客户端没有更新模块，需要手动安装一次 4.5.0**。
+
 ## 服务器侧目录
 
 ```
@@ -291,6 +337,7 @@ ssh tailnet-server 'rm -rf ~/lab-reservation/dist && tar -xzf /tmp/lab-dist.tgz 
 ├── app.jar          后端可执行 jar
 ├── dist/            前端构建产物
 ├── deploy/          serve_dist.py + 单元文件副本
+├── updates/         客户端更新清单与 exe/apk（服务器托管）
 ├── redis.conf       用户级 Redis 配置
 ├── .env             DB/Redis/JWT 等敏感配置（chmod 600）
 ├── logs/            app.log / frontend.log / redis.log

@@ -5,8 +5,11 @@
 const { app, BrowserWindow, Menu, shell, ipcMain } = require('electron')
 const path = require('path')
 const fs = require('fs')
+const { initUpdater, checkForUpdate } = require('./updater')
 
 const SERVER_URL = (process.env.LABWISE_SERVER || 'http://100.96.0.100:8092').replace(/\/+$/, '')
+// 更新接口在 8091 后端；与 SERVER_URL 分开是为了让前端页面与 API 地址可独立覆盖
+const API_URL = (process.env.LABWISE_API || 'http://100.96.0.100:8091').replace(/\/+$/, '')
 const STATE_FILE = () => path.join(app.getPath('userData'), 'client-state.json')
 /** 打包/部署前的自检模式：强制走协议页并自动同意，验证能进入服务器页面 */
 const SELFTEST = process.env.LABWISE_SELFTEST === '1'
@@ -63,6 +66,8 @@ function buildMenu() {
     {
       label: '帮助',
       submenu: [
+        { label: '检查更新…', click: () => checkForUpdate({ manual: true }) },
+        { type: 'separator' },
         {
           label: '服务器地址',
           click: () => {
@@ -120,6 +125,15 @@ function createWindow() {
     }
   })
 
+  // 启动后自动检查一次更新（只查一次，避免每次页面刷新都弹窗）
+  let autoUpdateChecked = false
+  mainWindow.webContents.on('did-finish-load', () => {
+    if (SELFTEST || autoUpdateChecked || !readState().eulaAccepted) return
+    if (!mainWindow.webContents.getURL().startsWith(SERVER_URL)) return
+    autoUpdateChecked = true
+    setTimeout(() => checkForUpdate({ manual: false }), 8000)
+  })
+
   if (!SELFTEST && readState().eulaAccepted) {
     loadApp()
   } else {
@@ -166,7 +180,15 @@ ipcMain.handle('app:retry', () => {
   loadApp()
 })
 
+ipcMain.handle('app:check-update', () => checkForUpdate({ manual: true }))
+
 app.whenReady().then(() => {
+  initUpdater({
+    apiBase: API_URL,
+    getMainWindow: () => mainWindow,
+    getState: readState,
+    setState: writeState
+  })
   buildMenu()
   createWindow()
   app.on('activate', () => {

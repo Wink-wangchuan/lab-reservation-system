@@ -105,7 +105,10 @@ public class SecurityConfig {
                             "/api/auth/captcha",
                             "/api/auth/login-by-code",
                             "/api/auth/register",
-                            "/api/auth/reset-password"
+                            "/api/auth/reset-password",
+                            // 客户端更新：登录前也要能检查与下载
+                            "/api/app/update",
+                            "/api/app/download/**"
                     ).permitAll();
                     // 接口文档仅在开启时放行；生产关闭后匿名访问直接 401
                     if (apiDocsEnabled) {
