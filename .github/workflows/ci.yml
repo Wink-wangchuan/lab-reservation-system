@@ -16,8 +16,26 @@ jobs:
           distribution: temurin
           java-version: '25'
           cache: maven
+      # 集成测试依赖 Testcontainers 拉起 MySQL，单独放到 integration 任务里跑
       - name: mvn test
-        run: mvn -B -q test
+        run: mvn -B -q test -Dtest='!FlywayMigrationIntegrationTest'
+
+  integration:
+    name: 数据库迁移集成测试（Testcontainers）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+      # ubuntu-latest 自带 Docker，Testcontainers 可直接拉起 mysql:8.0 容器
+      - name: 迁移集成测试
+        run: mvn -B test -Dtest=FlywayMigrationIntegrationTest
+      - name: 失败时保留容器日志
+        if: failure()
+        run: docker ps -a && docker images | head -20
 
   frontend:
     name: 前端 lint 与构建
@@ -38,3 +56,91 @@ jobs:
         run: npm run lint
       - name: 构建
         run: npm run build
+
+  e2e:
+    name: 端到端冒烟测试
+    runs-on: ubuntu-latest
+    needs: [ backend, frontend ]
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 初始化数据库
+        run: mysql -h127.0.0.1 -uroot -proot < sql/mysql.sql
+
+      - name: 打包后端
+        run: mvn -B -q -DskipTests package
+
+      - name: 启动后端
+        env:
+          SERVER_PORT: 8091
+          DB_HOST: 127.0.0.1
+          DB_PASSWORD: root
+          JWT_SECRET: ci-only-secret-ci-only-secret-ci-only-secret-0123456789
+          CORS_ALLOWED_ORIGINS: http://127.0.0.1:8092
+          FLYWAY_ENABLED: 'true'
+        run: |
+          nohup java -jar target/lab-reservation-system-1.0.0.jar > backend.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:8091/api/health > /dev/null; then
+              echo "后端已就绪"; exit 0
+            fi
+            sleep 3
+          done
+          echo "后端启动失败"; tail -120 backend.log; exit 1
+
+      - name: 构建并托管前端
+        working-directory: frontend
+        env:
+          VITE_API_BASE: http://127.0.0.1:8091/api
+        run: |
+          npm ci
+          npm run build
+          nohup npx --yes serve -s dist -l 8092 > ../frontend.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8092/ > /dev/null; then exit 0; fi
+            sleep 2
+          done
+          echo "前端启动失败"; cat ../frontend.log; exit 1
+
+      - name: 运行冒烟测试
+        working-directory: frontend
+        env:
+          E2E_BASE_URL: http://127.0.0.1:8092
+          E2E_USER: admin
+          E2E_PASSWORD: '123456'
+        run: npm run e2e
+
+      - name: 失败时输出服务日志
+        if: failure()
+        run: tail -120 backend.log; tail -60 frontend.log

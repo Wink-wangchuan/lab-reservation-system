@@ -13,6 +13,7 @@ import datetime
 import gzip
 import os
 import pathlib
+import shutil
 import sys
 
 import pymysql
@@ -21,6 +22,9 @@ ENV_FILE = pathlib.Path.home() / "lab-reservation" / ".env"
 BACKUP_DIR = pathlib.Path.home() / "lab-backup"
 KEEP = 7
 BATCH = 200
+# 异地副本目录（可选）：挂载了另一块盘/远端同步目录时设置 BACKUP_OFFSITE_DIR，
+# 备份完成后额外复制一份过去；未设置或目录不存在时跳过，不影响主备份。
+OFFSITE_DIR = os.environ.get("BACKUP_OFFSITE_DIR", "")
 
 
 def load_env() -> dict:
@@ -74,6 +78,22 @@ def cleanup() -> None:
         old.unlink(missing_ok=True)
 
 
+def offsite_copy(target: pathlib.Path) -> None:
+    """把本次备份复制到异地目录（同盘不同目录也聊胜于无，真异地请挂载远端同步目录）"""
+    if not OFFSITE_DIR:
+        return
+    dest_dir = pathlib.Path(OFFSITE_DIR)
+    if not dest_dir.is_dir():
+        print(f"[db-backup] 跳过异地副本：目录不存在 {dest_dir}")
+        return
+    dest = dest_dir / target.name
+    shutil.copy2(target, dest)
+    # 异地目录同样只保留最近 KEEP 份
+    for old in sorted(dest_dir.glob("lab_reservation_*.sql.gz"))[:-KEEP]:
+        old.unlink(missing_ok=True)
+    print(f"[db-backup] 异地副本：{dest}")
+
+
 def main() -> None:
     cfg = load_env()
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
@@ -97,6 +117,7 @@ def main() -> None:
         conn.close()
 
     cleanup()
+    offsite_copy(target)
     size = target.stat().st_size
     print(f"[db-backup] 完成：{target.name}（{tables} 张表，{size} 字节）")
 

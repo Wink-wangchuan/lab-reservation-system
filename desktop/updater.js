@@ -12,6 +12,12 @@ const { spawn } = require('child_process')
 
 const REPO = 'Wink-wangchuan/lab-reservation-system'
 
+// 更新清单验签公钥（Ed25519，SPKI PEM）
+// 私钥只保存在发布机/服务器的受限路径，服务器被攻破也无法伪造「合法清单」
+const UPDATE_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEADoxMQVLXqJ/ZmD+1F6VnGPxi3bJIQ/i219O1Zdde4Ts=
+-----END PUBLIC KEY-----`
+
 let context = {
   apiBase: '',
   getMainWindow: () => null,
@@ -100,6 +106,8 @@ async function fetchFromServer() {
     notes: String(data.notes || '').trim(),
     size: Number(data.size) || 0,
     sha256: String(data.sha256 || '').trim(),
+    fileName: String(data.fileName || '').trim(),
+    signature: String(data.signature || '').trim(),
     url: downloadUrl,
     fallbackUrl: String(data.fallbackUrl || '').trim(),
     source: 'server'
@@ -119,6 +127,8 @@ async function fetchFromGithub() {
     notes: String(release.body || '').trim(),
     size: Number(asset.size) || 0,
     sha256: '',
+    fileName: String(asset.name || '').trim(),
+    signature: '',
     url: asset.browser_download_url,
     fallbackUrl: '',
     source: 'github'
@@ -175,6 +185,24 @@ function sha256File(file) {
       .on('end', () => resolve(hash.digest('hex')))
       .on('error', reject)
   })
+}
+
+/** 校验服务器清单签名：version|sha256|fileName|size 的 Ed25519 签名 */
+function verifyManifest(info) {
+  if (!info.signature) {
+    throw new Error('更新清单未签名，已拒绝安装')
+  }
+  const payload = `${info.version}|${info.sha256}|${info.fileName}|${info.size}`
+  try {
+    return crypto.verify(
+      null,
+      Buffer.from(payload, 'utf8'),
+      crypto.createPublicKey(UPDATE_PUBLIC_KEY),
+      Buffer.from(info.signature, 'base64')
+    )
+  } catch {
+    return false
+  }
 }
 
 function createProgressWindow(version) {
@@ -247,6 +275,11 @@ async function downloadAndInstall(info) {
         fs.rmSync(dest, { force: true })
         throw new Error('安装包校验失败，已删除下载文件')
       }
+    }
+    // 服务器清单必须验签通过：SHA-256 与清单同源，单独使用时服务器被攻破即可同时篡改
+    if (info.source === 'server' && !verifyManifest(info)) {
+      fs.rmSync(dest, { force: true })
+      throw new Error('更新清单签名校验失败，已删除下载文件')
     }
   } catch (e) {
     progress.win.destroy()
@@ -352,4 +385,4 @@ async function checkForUpdate({ manual = false } = {}) {
   }
 }
 
-module.exports = { initUpdater, checkForUpdate, isNewer }
+module.exports = { initUpdater, checkForUpdate, isNewer, verifyManifest }

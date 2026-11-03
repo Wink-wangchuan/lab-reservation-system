@@ -49,6 +49,9 @@ public class AppUpdateManifest {
         /** 安装包 SHA-256（小写十六进制），空表示不校验 */
         private String sha256;
 
+        /** 清单签名（Ed25519，Base64；对 version|sha256|fileName|size 签名） */
+        private String signature;
+
         /** GitHub Releases 兜底下载地址（服务器下载失败时使用） */
         private String fallbackUrl;
 

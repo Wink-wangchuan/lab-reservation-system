@@ -101,3 +101,8 @@ CREATE TABLE IF NOT EXISTS sys_user_lab (
     KEY idx_user_lab_user (user_id),
     KEY idx_user_lab_lab (lab_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='用户数据权限（可见实验室范围）';
+
+-- ---------- 6. 历史归档表 ----------
+-- 结构与原表完全一致，归档/回迁都不需要字段映射
+CREATE TABLE IF NOT EXISTS lab_reservation_archive LIKE lab_reservation;
+CREATE TABLE IF NOT EXISTS sys_oper_log_archive LIKE sys_oper_log;

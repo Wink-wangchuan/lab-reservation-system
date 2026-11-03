@@ -62,6 +62,8 @@ public class AppUpdateController {
                 .notes(info.getNotes())
                 .size(info.getSize())
                 .sha256(info.getSha256())
+                .fileName(info.getFileName())
+                .signature(info.getSignature())
                 .downloadUrl("/api/app/download/" + normalized)
                 .fallbackUrl(info.getFallbackUrl())
                 .force(Boolean.TRUE.equals(info.getForce()))

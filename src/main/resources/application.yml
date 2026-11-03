@@ -38,6 +38,16 @@ spring:
     resources:
       add-mappings: true
 
+  # 数据库版本迁移：既有库从 4.5 基线接管，之后按 db/migration/V*.sql 顺序自动执行
+  flyway:
+    enabled: ${FLYWAY_ENABLED:true}
+    baseline-on-migrate: true
+    baseline-version: 4.5
+    baseline-description: "baseline before v4.6"
+    locations: classpath:db/migration
+    # 手工执行过 sql/upgrade_*.sql 的库校验和可能对不上，关闭校验只按版本号推进
+    validate-on-migrate: false
+
 server:
   port: 8080
   servlet:
@@ -131,6 +141,26 @@ app:
     manifest: ${APP_UPDATE_MANIFEST:manifest.json}
 
 # ============================================================
+# 可观测性（Prometheus 抓取 /actuator/prometheus）
+# ============================================================
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when_authorized
+  metrics:
+    tags:
+      application: lab-reservation-system
+
+# ============================================================
+# 历史数据归档（定时把过期完成的预约与旧操作日志移到归档表）
+# 见下方 lab.archive 配置
+# ============================================================
+
+# ============================================================
 # 操作日志保留策略（每天凌晨清理过期记录，防止表无限膨胀）
 # ============================================================
 oper-log:
@@ -142,6 +172,11 @@ oper-log:
 # 不占用数据库连接，也不需要改代码或注释 @Scheduled。
 # ============================================================
 lab:
+  # 历史数据归档：过期完成的预约与旧操作日志移到归档表，主表保持轻量
+  archive:
+    enabled: ${ARCHIVE_ENABLED:true}
+    reservation-years: ${ARCHIVE_RESERVATION_YEARS:2}
+    oper-log-days: ${ARCHIVE_OPER_LOG_DAYS:60}
   schedule:
     # 已通过预约到点自动置为已完成
     auto-complete-reservation: ${SCHEDULE_AUTO_COMPLETE:true}

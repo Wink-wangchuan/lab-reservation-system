@@ -101,6 +101,9 @@ public class SecurityConfig {
                             "/error",
                             // 健康检查：服务器巡检脚本匿名探活，只返回依赖状态，不含配置信息
                             "/api/health",
+                            // Prometheus 指标：仅在 tailnet 内可达，供监控抓取
+                            "/actuator/health",
+                            "/actuator/prometheus",
                             "/api/auth/login",
                             "/api/auth/captcha",
                             "/api/auth/login-by-code",

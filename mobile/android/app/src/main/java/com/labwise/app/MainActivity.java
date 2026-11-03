@@ -11,6 +11,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.util.Base64;
 import android.util.Log;
 import android.view.View;
 import android.webkit.JavascriptInterface;
@@ -41,6 +42,10 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.security.KeyFactory;
+import java.security.PublicKey;
+import java.security.Signature;
+import java.security.spec.X509EncodedKeySpec;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -64,6 +69,13 @@ public class MainActivity extends BridgeActivity {
     private static final String GITHUB_LATEST =
             "https://api.github.com/repos/Wink-wangchuan/lab-reservation-system/releases/latest";
     private static final String TAG = "LabWiseUpdate";
+
+    /**
+     * 更新清单验签公钥（Ed25519，X.509 DER Base64）
+     * 私钥只保存在发布机/服务器受限路径；服务器被攻破也无法伪造合法清单。
+     */
+    private static final String UPDATE_PUBLIC_KEY_DER =
+            "MCowBQYDK2VwAyEADoxMQVLXqJ/ZmD+1F6VnGPxi3bJIQ/i219O1Zdde4Ts=";
 
     private SharedPreferences prefs;
     private final AtomicBoolean updateChecking = new AtomicBoolean(false);
@@ -298,6 +310,15 @@ public class MainActivity extends BridgeActivity {
                     return;
                 }
             }
+            // 服务器清单必须验签通过；GitHub Releases 走 HTTPS 信任链，不要求本地签名
+            if ("server".equals(info.source) && !verifyManifest(info)) {
+                apk.delete();
+                runOnUiThread(() -> {
+                    progress.dismiss();
+                    toast("更新清单签名校验失败，已删除安装包");
+                });
+                return;
+            }
             runOnUiThread(() -> {
                 progress.dismiss();
                 installApk(apk);
@@ -365,6 +386,27 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
+    /** 校验服务器清单签名：version|sha256|fileName|size 的 Ed25519 签名 */
+    private boolean verifyManifest(UpdateInfo info) {
+        if (info.signature == null || info.signature.isEmpty()) {
+            Log.w(TAG, "更新清单缺少签名，拒绝安装");
+            return false;
+        }
+        String payload = info.version + "|" + info.sha256 + "|" + info.fileName + "|" + info.size;
+        try {
+            byte[] der = Base64.decode(UPDATE_PUBLIC_KEY_DER, Base64.DEFAULT);
+            PublicKey key = KeyFactory.getInstance("Ed25519")
+                    .generatePublic(new X509EncodedKeySpec(der));
+            Signature verifier = Signature.getInstance("Ed25519");
+            verifier.initVerify(key);
+            verifier.update(payload.getBytes(StandardCharsets.UTF_8));
+            return verifier.verify(Base64.decode(info.signature, Base64.DEFAULT));
+        } catch (Exception e) {
+            Log.w(TAG, "清单验签失败：" + e.getMessage());
+            return false;
+        }
+    }
+
     private UpdateInfo fetchServerUpdate() throws Exception {
         String body = httpGet(API_BASE + "/api/app/update?platform=android");
         JSONObject root = new JSONObject(body);
@@ -379,6 +421,9 @@ public class MainActivity extends BridgeActivity {
         info.version = data.optString("version", "");
         info.notes = data.optString("notes", "");
         info.sha256 = data.optString("sha256", "");
+        info.fileName = data.optString("fileName", "");
+        info.signature = data.optString("signature", "");
+        info.source = "server";
         String downloadUrl = data.optString("downloadUrl", "");
         info.url = downloadUrl.startsWith("http") ? downloadUrl : API_BASE + downloadUrl;
         info.fallbackUrl = data.optString("fallbackUrl", "");
@@ -403,6 +448,8 @@ public class MainActivity extends BridgeActivity {
                 if (name.toLowerCase(Locale.ROOT).endsWith(".apk")) {
                     info.url = asset.optString("browser_download_url", "");
                     info.size = asset.optLong("size", 0);
+                    info.fileName = name;
+                    info.source = "github";
                     break;
                 }
             }
@@ -503,6 +550,9 @@ public class MainActivity extends BridgeActivity {
         String url = "";
         String fallbackUrl = "";
         String sha256 = "";
+        String fileName = "";
+        String signature = "";
+        String source = "";
         long size = 0;
     }
 }

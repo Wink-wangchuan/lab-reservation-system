@@ -28,6 +28,12 @@ public class AppUpdateVO {
     /** SHA-256（可能为空） */
     private String sha256;
 
+    /** 安装包文件名 */
+    private String fileName;
+
+    /** 清单签名（Ed25519 Base64，客户端用内置公钥校验） */
+    private String signature;
+
     /** 服务器下载地址（相对当前 API 根路径） */
     private String downloadUrl;
 
