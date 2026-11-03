@@ -25,11 +25,14 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>本机没有 Docker 时自动跳过（{@code disabledWithoutDocker}），
  * CI 的 integration 任务会真实执行。</p>
  *
+ * <p>注意必须使用 MOCK Web 环境：应用里的 Security 过滤链与 Knife4j 都依赖
+ * Servlet 上下文，用 NONE 会因为缺少 HttpSecurity / SpringDocConfigProperties 启动失败。</p>
+ *
  * @author LabWise
  * @since 4.6.0
  */
 @Testcontainers(disabledWithoutDocker = true)
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 class FlywayMigrationIntegrationTest {
 
     @Container

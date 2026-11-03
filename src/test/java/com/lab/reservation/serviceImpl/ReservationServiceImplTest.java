@@ -27,6 +27,7 @@ import com.lab.reservation.service.CheckinService;
 import com.lab.reservation.service.LabClosureService;
 import com.lab.reservation.service.NoticeService;
 import com.lab.reservation.service.StatisticsService;
+import com.lab.reservation.service.SysConfigService;
 import com.lab.reservation.vo.ReservationVO;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -50,6 +51,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
@@ -106,6 +109,9 @@ class ReservationServiceImplTest {
     /** 闭馆日历：命中则拒绝预约 */
     @Mock
     private LabClosureService closureService;
+    /** 系统设置：定时任务开关（默认按配置项缺省值开启） */
+    @Mock
+    private SysConfigService sysConfigService;
 
     @InjectMocks
     private ReservationServiceImpl reservationService;
@@ -121,6 +127,8 @@ class ReservationServiceImplTest {
         // 默认：账号无爽约限制、实验室未闭馆；个别用例需要时再覆盖
         lenient().when(sysUserMapper.selectById(any())).thenReturn(unrestrictedUser());
         lenient().when(closureService.findClosure(any(), any())).thenReturn(null);
+        // 默认不读取到系统设置，开关按代码里的缺省值（开启）处理
+        lenient().when(sysConfigService.getBoolean(anyString(), anyBoolean())).thenReturn(true);
     }
 
     /** 未被爽约限制的账号 */
