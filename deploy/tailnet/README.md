@@ -315,8 +315,20 @@ ssh tailnet-server 'rm -rf ~/lab-reservation/dist && tar -xzf /tmp/lab-dist.tgz 
    - `fileName / size / sha256`：与实际文件一致（sha256 为空则客户端跳过校验）；
    - `fallbackUrl`：GitHub Release 资产地址；
    - `force`：预留字段，当前为 `false`（非强制更新）。
-5. 在 GitHub 创建同名 Release 并上传 exe/apk（作为兜底源）；
-6. 验证：
+5. 生成源码归档（只含 tracked 文件，自动排除 node_modules/target/dist/.git/release/build/keystore）：
+   ```bash
+   git fetch origin --tags --force
+   git archive --format=zip    -o release/LabWise-v4.5.0-source.zip    v4.5.0
+   git archive --format=tar.gz -o release/LabWise-v4.5.0-source.tar.gz v4.5.0
+   ```
+6. 在 GitHub 创建同名 Release 并上传**全部四类资产**（exe/apk 作为兜底源，源码归档用于交付与审计）：
+   ```bash
+   gh release create v4.5.0 --title 'v4.5.0' --notes-file notes.md \
+     LabWise-Setup-4.5.0.exe LabWise-4.5.0.apk \
+     release/LabWise-v4.5.0-source.zip release/LabWise-v4.5.0-source.tar.gz
+   ```
+   > 约定：**每次改动发版都必须同时上传安装包与源码归档**，不得只传其中一类。
+7. 验证：
    ```bash
    curl -sS 'http://100.96.0.100:8091/api/app/update?platform=windows'
    curl -sSI 'http://100.96.0.100:8091/api/app/download/windows' | sed -n '1,12p'
