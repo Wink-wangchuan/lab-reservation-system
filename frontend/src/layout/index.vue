@@ -301,7 +301,7 @@ const menuDefs = [
   { path: '/system/role', title: '角色管理', icon: 'Avatar', perms: ['system:role:list'] },
   { path: '/system/permission', title: '权限管理', icon: 'Lock', perms: ['system:role:list'] },
   { path: '/system/operlog', title: '操作日志', icon: 'Document', perms: ['system:operlog:list'] },
-  { path: '/system/knowledge', title: 'AI 知识库', icon: 'Reading', perms: ['system:knowledge:manage'] },
+  { path: '/system/knowledge', title: 'AI 知识库', icon: 'AiKnowledgeIcon', perms: ['system:knowledge:manage'] },
   { path: '/system/setting', title: '系统设置', icon: 'Setting', perms: ['system:config:manage'] },
   { path: '/system/announcement', title: '系统公告', icon: 'BellFilled', perms: ['system:announcement:manage'] },
   { path: '/system/data-scope', title: '数据权限', icon: 'Lock', perms: ['system:user:edit'] },

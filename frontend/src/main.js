@@ -11,8 +11,12 @@ import {
   Tickets,
   Search,
   Warning,
+  WarningFilled,
   Timer,
   Plus,
+  Aim,
+  Camera,
+  Upload,
   Check,
   Monitor,
   OfficeBuilding,
@@ -63,6 +67,7 @@ import {
 
 import App from './App.vue'
 import router from './router'
+import AiKnowledgeIcon from './components/AiKnowledgeIcon.vue'
 import './styles/index.scss'
 // 在入口处加载主题模块：其副作用会在文档加载时立即把已保存/系统主题写到 <html>，
 // 从而保证登录、注册、找回密码这类不套用后台布局的整页也遵循深色模式
@@ -80,8 +85,12 @@ const icons = {
   Tickets,
   Search,
   Warning,
+  WarningFilled,
   Timer,
   Plus,
+  Aim,
+  Camera,
+  Upload,
   Check,
   Monitor,
   OfficeBuilding,
@@ -127,7 +136,8 @@ const icons = {
   Iphone,
   Key,
   ArrowLeft,
-  ChatDotRound
+  ChatDotRound,
+  AiKnowledgeIcon
 }
 
 const app = createApp(App)

@@ -192,7 +192,7 @@ const routes = [
         path: 'knowledge',
         name: 'SysKnowledge',
         component: () => import('@/views/system/knowledge.vue'),
-        meta: { title: 'AI 知识库', icon: 'Reading', perms: ['system:knowledge:manage'] }
+        meta: { title: 'AI 知识库', icon: 'AiKnowledgeIcon', perms: ['system:knowledge:manage'] }
       },
       {
         path: 'setting',

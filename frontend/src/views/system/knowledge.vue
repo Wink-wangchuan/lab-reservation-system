@@ -3,7 +3,7 @@
     <div class="glass-card">
       <div class="toolbar">
         <div class="page-title">
-          <el-icon><Reading /></el-icon>
+          <el-icon><AiKnowledgeIcon /></el-icon>
           AI 知识库
         </div>
         <div class="toolbar-right">
