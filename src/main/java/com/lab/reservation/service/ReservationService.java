@@ -37,6 +37,12 @@ public interface ReservationService {
     ReservationVO approve(ApprovalDTO dto);
 
     /**
+     * 批量审批：逐单独立事务执行，部分失败不回滚已成功的单据
+     */
+    com.lab.reservation.vo.BatchApprovalResultVO batchApprove(
+            com.lab.reservation.dto.BatchApprovalDTO dto);
+
+    /**
      * 分页查询我的预约（当前登录用户）
      */
     IPage<ReservationVO> pageMyReservations(IPage<ReservationVO> page, String status);

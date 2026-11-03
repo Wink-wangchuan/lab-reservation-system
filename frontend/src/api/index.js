@@ -101,6 +101,7 @@ export const reservationCancel = (id, reason) =>
   request.put(`/reservation/${id}/cancel`, null, { params: { reason } })
 export const reservationReschedule = (id, data) => request.put(`/reservation/${id}/reschedule`, data)
 export const reservationApprove = (data) => request.post('/reservation/approve', data)
+export const reservationBatchApprove = (data) => request.post('/reservation/batch-approve', data)
 export const reservationMine = (params) => request.get('/reservation/mine', { params })
 export const reservationPage = (params) => request.get('/reservation/page', { params })
 export const reservationDetail = (id) => request.get(`/reservation/${id}`)

@@ -81,6 +81,15 @@ public class ReservationController {
         return Result.success("审批完成", reservationService.approve(dto));
     }
 
+    @Operation(summary = "批量审批预约（教师）")
+    @PostMapping("/batch-approve")
+    @OperationLog(module = "预约管理", businessType = "update", description = "批量审批预约")
+    @PreAuthorize("hasAuthority('reservation:approve')")
+    public Result<com.lab.reservation.vo.BatchApprovalResultVO> batchApprove(
+            @Valid @RequestBody com.lab.reservation.dto.BatchApprovalDTO dto) {
+        return Result.success("批量审批完成", reservationService.batchApprove(dto));
+    }
+
     @Operation(summary = "我的预约分页")
     @GetMapping("/mine")
     @PreAuthorize("hasAuthority('reservation:mine')")

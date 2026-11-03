@@ -106,6 +106,9 @@ public class ReservationServiceImpl implements ReservationService {
     /** 容量释放事件：取消/驳回/改期后立即触发候补递补（事件监听器异步处理） */
     private final org.springframework.context.ApplicationEventPublisher eventPublisher;
 
+    /** 批量审批按单开启独立事务：某一张失败不牵连已成功的单据 */
+    private final org.springframework.transaction.PlatformTransactionManager transactionManager;
+
     /** 预约开始前多少分钟提醒 */
     private static final int REMIND_MINUTES = 30;
 
@@ -595,6 +598,41 @@ public class ReservationServiceImpl implements ReservationService {
         }
 
         return convert(reservation);
+    }
+
+    @Override
+    public com.lab.reservation.vo.BatchApprovalResultVO batchApprove(
+            com.lab.reservation.dto.BatchApprovalDTO dto) {
+        // 去重保序：前端勾选时可能重复传同一个 ID
+        List<Long> ids = new ArrayList<>(new java.util.LinkedHashSet<>(dto.getReservationIds()));
+        com.lab.reservation.vo.BatchApprovalResultVO result =
+                new com.lab.reservation.vo.BatchApprovalResultVO();
+
+        org.springframework.transaction.support.TransactionTemplate template =
+                new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+        // 每单独立事务：部分失败时已成功的单据仍然保留
+        template.setPropagationBehavior(
+                org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        for (Long id : ids) {
+            try {
+                ApprovalDTO single = new ApprovalDTO();
+                single.setReservationId(id);
+                single.setAction(dto.getAction());
+                single.setComment(dto.getComment());
+                template.executeWithoutResult(status -> approve(single));
+                result.setSuccessCount(result.getSuccessCount() + 1);
+            } catch (BusinessException e) {
+                result.addFailure(id, e.getMessage());
+            } catch (Exception e) {
+                // 非业务异常（如数据库瞬时故障）也只影响当前这一单
+                log.warn("[预约] 批量审批单 {} 失败", id, e);
+                result.addFailure(id, "系统异常，请稍后重试");
+            }
+        }
+        log.info("[预约] 批量审批完成：动作={} 成功={} 失败={}",
+                dto.getAction(), result.getSuccessCount(), result.getFailureCount());
+        return result;
     }
 
     @Override

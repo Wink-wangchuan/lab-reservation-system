@@ -16,7 +16,30 @@
         </div>
       </div>
 
-      <el-table v-if="!isMobile" v-loading="loading" :data="records" stripe border>
+      <!-- 批量审批：只允许勾选当前可审批的行，勾选后出现统一操作栏 -->
+      <div v-if="selectedRows.length" class="batch-bar">
+        <span class="batch-bar__count">已选 {{ selectedRows.length }} 条待审核预约</span>
+        <div class="batch-bar__actions">
+          <el-button size="small" type="success" :loading="batchLoading" @click="doBatchApprove('APPROVE')">
+            批量通过
+          </el-button>
+          <el-button size="small" type="danger" :loading="batchLoading" @click="doBatchApprove('REJECT')">
+            批量驳回
+          </el-button>
+          <el-button size="small" text @click="clearSelection">取消选择</el-button>
+        </div>
+      </div>
+
+      <el-table
+        v-if="!isMobile"
+        ref="tableRef"
+        v-loading="loading"
+        :data="records"
+        stripe
+        border
+        @selection-change="onSelectionChange"
+      >
+        <el-table-column type="selection" width="46" :selectable="row => !!row.canApprove" />
         <el-table-column label="单号" prop="reservationNo" width="210" />
         <el-table-column label="实验室" prop="labName" width="170" />
         <el-table-column label="申请人" prop="studentName" width="90" />
@@ -47,7 +70,14 @@
       <div v-else v-loading="loading" class="resv-cards">
         <div v-for="row in records" :key="row.id" class="resv-card">
           <div class="resv-card__head">
-            <span class="resv-card__no">{{ row.reservationNo }}</span>
+            <div class="resv-card__head-left">
+              <el-checkbox
+                v-if="row.canApprove"
+                :model-value="isSelected(row)"
+                @change="v => toggleMobileSelect(row, v)"
+              />
+              <span class="resv-card__no">{{ row.reservationNo }}</span>
+            </div>
             <el-tag :type="statusType(row.status)" size="small">{{ row.statusDesc }}</el-tag>
           </div>
           <div class="resv-card__title">{{ row.labName || '-' }}</div>
@@ -125,7 +155,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { reservationPage, reservationApprove, reservationExport } from '@/api'
+import { reservationPage, reservationApprove, reservationBatchApprove, reservationExport } from '@/api'
 import { useUserStore } from '@/store/user'
 
 // 窄屏（<=640px）用卡片列表替代宽表格，避免固定操作列把其它列挤出可视区
@@ -159,6 +189,88 @@ function statusType(s) { return statusTypeMap[s] || 'info' }
 
 const detailVisible = ref(false)
 const current = ref(null)
+
+// ===== 批量审批 =====
+const tableRef = ref(null)
+const selectedRows = ref([])
+const batchLoading = ref(false)
+
+function onSelectionChange(rows) {
+  selectedRows.value = rows
+}
+
+function isSelected(row) {
+  return selectedRows.value.some((r) => r.id === row.id)
+}
+
+// 窄屏卡片没有表格的勾选列，用复选框手动维护同一份已选集合
+function toggleMobileSelect(row, checked) {
+  if (checked) {
+    if (!isSelected(row)) selectedRows.value = [...selectedRows.value, row]
+  } else {
+    selectedRows.value = selectedRows.value.filter((r) => r.id !== row.id)
+  }
+}
+
+function clearSelection() {
+  selectedRows.value = []
+  tableRef.value?.clearSelection()
+}
+
+// 失败原因由后端返回，转义后再拼进 HTML 弹窗，避免原因里的尖括号被当成标签
+function escapeHtml(text) {
+  return String(text ?? '').replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]))
+}
+
+function doBatchApprove(action) {
+  const isPass = action === 'APPROVE'
+  const text = isPass ? '通过' : '驳回'
+  const count = selectedRows.value.length
+  if (!count) return
+  // 驳回需要统一原因；通过无需填写意见
+  const askComment = isPass
+    ? Promise.resolve('')
+    : ElMessageBox.prompt('请输入驳回原因（将应用到所有选中单据）', '批量驳回', {
+      confirmButtonText: '下一步',
+      cancelButtonText: '取消'
+    }).then(({ value }) => value)
+
+  askComment
+    .then(async (comment) => {
+      try {
+        await ElMessageBox.confirm(`确认批量${text} ${count} 条预约吗？`, '批量审批确认', { type: 'warning' })
+      } catch {
+        return
+      }
+      batchLoading.value = true
+      try {
+        const result = await reservationBatchApprove({
+          reservationIds: selectedRows.value.map((r) => r.id),
+          action,
+          comment: comment || ''
+        })
+        const success = result?.successCount ?? 0
+        const failures = result?.failures || []
+        if (failures.length) {
+          // 部分失败是批量审批的常态（已被他人审批/状态已变更），按单号列出原因
+          const noMap = Object.fromEntries(selectedRows.value.map((r) => [r.id, r.reservationNo]))
+          const lines = failures.map((f) => `${noMap[f.reservationId] || f.reservationId}：${f.reason}`)
+          ElMessageBox.alert(
+            `成功 ${success} 条，失败 ${failures.length} 条：<br>${lines.map(escapeHtml).join('<br>')}`,
+            '批量审批结果',
+            { type: 'warning', confirmButtonText: '知道了', dangerouslyUseHTMLString: true }
+          )
+        } else {
+          ElMessage.success(`已批量${text} ${success} 条预约`)
+        }
+        clearSelection()
+        load()
+      } finally {
+        batchLoading.value = false
+      }
+    })
+    .catch(() => {})
+}
 
 async function load() {
   loading.value = true
@@ -269,6 +381,38 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+}
+
+.resv-card__head-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* ===== 批量操作栏 ===== */
+.batch-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 4px 0 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--card-bg-soft);
+}
+
+.batch-bar__count {
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.batch-bar__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .resv-card__no {
