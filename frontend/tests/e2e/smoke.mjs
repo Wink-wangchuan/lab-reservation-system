@@ -26,7 +26,8 @@ function check(name, ok, detail = '') {
 }
 
 async function login(page, base) {
-  await page.goto(`${base}/login`, { waitUntil: 'networkidle', timeout: 60000 })
+  // 不能用 networkidle：登录后页面会建立 SSE 长连接（实时通知），网络永远不会空闲
+  await page.goto(`${base}/login`, { waitUntil: 'domcontentloaded', timeout: 60000 })
   await page.fill('input[placeholder="请输入用户名"]', USER)
   await page.fill('input[placeholder="请输入密码"]', PASSWORD)
   await page.click('.submit-btn')
@@ -50,7 +51,7 @@ try {
   check('驾驶舱提供使用率报表入口', await page.locator('text=使用率报表').first().isVisible())
 
   // 2. 预约管理列表加载完成（库为空时允许 0 行，只要表格与空态正常渲染）
-  await page.goto(`${BASE}/reservation/list`, { waitUntil: 'networkidle' })
+  await page.goto(`${BASE}/reservation/list`, { waitUntil: 'domcontentloaded' })
   await page.waitForTimeout(1200)
   const rows = await page.locator('.el-table__body tbody tr').count()
   const emptyText = await page.locator('.el-table__empty-text').count()
@@ -58,12 +59,12 @@ try {
     `共 ${rows} 行${emptyText ? '（空数据）' : ''}`)
 
   // 3. 实验室管理含「时段共享」列
-  await page.goto(`${BASE}/lab/info`, { waitUntil: 'networkidle' })
+  await page.goto(`${BASE}/lab/info`, { waitUntil: 'domcontentloaded' })
   await page.waitForTimeout(1200)
   check('实验室管理显示时段共享开关', await page.locator('text=时段共享').first().isVisible())
 
   // 4. 发起预约弹窗：选实验室 + 日期后能取到可预约时段（含余量信息）
-  await page.goto(`${BASE}/reservation/apply`, { waitUntil: 'networkidle' })
+  await page.goto(`${BASE}/reservation/apply`, { waitUntil: 'domcontentloaded' })
   await page.waitForTimeout(1000)
   await page.click('text=发起预约')
   await page.waitForTimeout(600)
