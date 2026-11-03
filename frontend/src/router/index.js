@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { getToken } from '@/utils/auth'
+import { getToken, getUser } from '@/utils/auth'
 
 const routes = [
   {
@@ -29,7 +29,7 @@ const routes = [
         path: 'dashboard',
         name: 'Dashboard',
         component: () => import('@/views/dashboard/index.vue'),
-        meta: { title: '数据驾驶舱', icon: 'DataAnalysis' }
+        meta: { title: '数据驾驶舱', icon: 'DataAnalysis', perms: ['statistics:view'] }
       }
     ]
   },
@@ -42,13 +42,13 @@ const routes = [
         path: 'apply',
         name: 'ReservationApply',
         component: () => import('@/views/reservation/apply.vue'),
-        meta: { title: '预约申请', icon: 'Calendar' }
+        meta: { title: '预约申请', icon: 'Calendar', perms: ['reservation:submit'] }
       },
       {
         path: 'list',
         name: 'ReservationList',
         component: () => import('@/views/reservation/list.vue'),
-        meta: { title: '预约管理', icon: 'Tickets' }
+        meta: { title: '预约管理', icon: 'Tickets', perms: ['reservation:list'] }
       }
     ]
   },
@@ -60,13 +60,13 @@ const routes = [
         path: 'info',
         name: 'LabInfo',
         component: () => import('@/views/lab/info.vue'),
-        meta: { title: '实验室管理', icon: 'OfficeBuilding' }
+        meta: { title: '实验室管理', icon: 'OfficeBuilding', perms: ['system:lab:list'] }
       },
       {
         path: 'slot',
         name: 'LabSlot',
         component: () => import('@/views/lab/slot.vue'),
-        meta: { title: '开放时段配置', icon: 'Timer' }
+        meta: { title: '开放时段配置', icon: 'Timer', perms: ['system:lab:slotConfig'] }
       }
     ]
   },
@@ -78,13 +78,13 @@ const routes = [
         path: 'list',
         name: 'DeviceList',
         component: () => import('@/views/device/list.vue'),
-        meta: { title: '设备台账', icon: 'Monitor' }
+        meta: { title: '设备台账', icon: 'Monitor', perms: ['system:device:list'] }
       },
       {
         path: 'repair',
         name: 'DeviceRepair',
         component: () => import('@/views/device/repair.vue'),
-        meta: { title: '报修闭环', icon: 'Tools' }
+        meta: { title: '报修闭环', icon: 'Tools', perms: ['device:repair:list', 'device:repair:submit'] }
       }
     ]
   },
@@ -96,7 +96,7 @@ const routes = [
         path: '',
         name: 'LabBoard',
         component: () => import('@/views/board/index.vue'),
-        meta: { title: '实时占用看板', icon: 'Odometer' }
+        meta: { title: '实时占用看板', icon: 'Odometer', perms: ['lab:board:view'] }
       }
     ]
   },
@@ -108,13 +108,13 @@ const routes = [
         path: 'mine',
         name: 'CheckinMine',
         component: () => import('@/views/checkin/mine.vue'),
-        meta: { title: '我的签到', icon: 'Stamp' }
+        meta: { title: '我的签到', icon: 'Stamp', perms: ['checkin:mine'] }
       },
       {
         path: 'verify',
         name: 'CheckinVerify',
         component: () => import('@/views/checkin/verify.vue'),
-        meta: { title: '签到核销', icon: 'CircleCheck' }
+        meta: { title: '签到核销', icon: 'CircleCheck', perms: ['checkin:verify'] }
       }
     ]
   },
@@ -126,7 +126,7 @@ const routes = [
         path: '',
         name: 'NoticeCenter',
         component: () => import('@/views/notice/index.vue'),
-        meta: { title: '消息中心', icon: 'Bell' }
+        meta: { title: '消息中心', icon: 'Bell', perms: ['notice:mine', 'notice:list'] }
       }
     ]
   },
@@ -162,27 +162,33 @@ const routes = [
         path: 'user',
         name: 'SysUser',
         component: () => import('@/views/system/user.vue'),
-        meta: { title: '用户管理', icon: 'User' }
+        meta: { title: '用户管理', icon: 'User', perms: ['system:user:list'] }
       },
       {
         path: 'role',
         name: 'SysRole',
         component: () => import('@/views/system/role.vue'),
-        meta: { title: '角色管理', icon: 'Avatar' }
+        meta: { title: '角色管理', icon: 'Avatar', perms: ['system:role:list'] }
       },
       {
         path: 'permission',
         name: 'SysPermission',
         component: () => import('@/views/system/permission.vue'),
-        meta: { title: '权限管理', icon: 'Lock' }
+        meta: { title: '权限管理', icon: 'Lock', perms: ['system:role:list'] }
       },
       {
         path: 'operlog',
         name: 'OperLog',
         component: () => import('@/views/system/operlog.vue'),
-        meta: { title: '操作日志', icon: 'Document' }
+        meta: { title: '操作日志', icon: 'Document', perms: ['system:operlog:list'] }
       }
     ]
+  },
+  {
+    path: '/403',
+    name: 'NoPermission',
+    component: () => import('@/views/error/403.vue'),
+    meta: { title: '无访问权限' }
   }
 ]
 
@@ -194,6 +200,13 @@ const router = createRouter({
 // 无需登录即可访问的页面（注册、找回密码与登录同级，独立整页）
 const WHITE_LIST = ['/login', '/register', '/forgot']
 
+/** 当前登录用户是否具备访问该路由的任一权限（* 为全部权限） */
+function hasRoutePermission(required) {
+  if (!required || required.length === 0) return true
+  const permissions = getUser()?.permissions || []
+  return permissions.includes('*') || required.some((perm) => permissions.includes(perm))
+}
+
 // 全局前置守卫
 router.beforeEach((to, from, next) => {
   document.title = to.meta?.title ? `${to.meta.title} · 智慧实验室预约管理系统` : '智慧实验室预约管理系统'
@@ -203,6 +216,11 @@ router.beforeEach((to, from, next) => {
   }
   if (!getToken()) {
     next({ path: '/login', query: { redirect: to.fullPath } })
+    return
+  }
+  // 路由级权限：菜单之外直接输入 URL 也不进入无权页面（后端仍有接口权限兜底）
+  if (!hasRoutePermission(to.meta?.perms)) {
+    next({ path: '/403', query: { from: to.fullPath } })
     return
   }
   next()

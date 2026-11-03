@@ -2,23 +2,11 @@
 //
 // 登录态策略：
 //   - 令牌只存 sessionStorage，关闭浏览器即退出；页面连续 1 小时无操作也会自动退出。
-//   - 「记住我」只记住账号密码（localStorage），下次打开登录页自动回填，不等于保持登录态。
+//   - 「记住我」只记住用户名（localStorage），下次打开登录页自动回填账号，密码仍需手动输入；
+//     不保存密码，避免把凭据长期留在浏览器本地。
 const TOKEN_KEY = 'labwise_token'
 const USER_KEY = 'labwise_user'
 const REMEMBER_KEY = 'labwise_remember_account'
-
-// 账号密码做一层 Base64 编码，避免明文直读；注意这不是加密，仅用于本地便捷回填
-function encode(text) {
-  return btoa(encodeURIComponent(text))
-}
-
-function decode(text) {
-  try {
-    return decodeURIComponent(atob(text))
-  } catch {
-    return ''
-  }
-}
 
 export function getToken() {
   return sessionStorage.getItem(TOKEN_KEY)
@@ -46,20 +34,22 @@ export function setUser(user) {
   sessionStorage.setItem(USER_KEY, JSON.stringify(user))
 }
 
-/** 保存「记住我」的账号密码 */
-export function setRememberedAccount(username, password) {
-  localStorage.setItem(REMEMBER_KEY, JSON.stringify({
-    username: encode(username),
-    password: encode(password)
-  }))
+/** 保存「记住我」的用户名（不保存密码） */
+export function setRememberedAccount(username) {
+  localStorage.setItem(REMEMBER_KEY, JSON.stringify({ username }))
 }
 
-/** 读取「记住我」的账号密码；未保存时返回 null */
+/** 读取记住的用户名；未保存时返回 null。兼容清理旧版本存过密码的数据 */
 export function getRememberedAccount() {
   try {
     const raw = JSON.parse(localStorage.getItem(REMEMBER_KEY) || 'null')
     if (!raw || !raw.username) return null
-    return { username: decode(raw.username), password: decode(raw.password) }
+    const username = raw.username
+    // 旧版本曾保存 password，读取时顺手重写为只含用户名
+    if (Object.prototype.hasOwnProperty.call(raw, 'password')) {
+      localStorage.setItem(REMEMBER_KEY, JSON.stringify({ username }))
+    }
+    return { username }
   } catch {
     return null
   }

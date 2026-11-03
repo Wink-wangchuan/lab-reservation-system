@@ -23,8 +23,8 @@
             />
           </el-form-item>
           <el-form-item class="remember-item">
-            <el-checkbox v-model="rememberMe">记住我</el-checkbox>
-            <span class="remember-tip">记住账号密码，下次自动填充</span>
+            <el-checkbox v-model="rememberMe">记住账号</el-checkbox>
+            <span class="remember-tip">只记住用户名，密码仍需手动输入</span>
           </el-form-item>
           <el-button class="submit-btn" type="primary" :loading="loading" @click="onPasswordLogin">
             {{ loading ? '登录中...' : '登 录' }}
@@ -91,13 +91,13 @@ const sending = ref(false)
 
 const pwdFormRef = ref()
 const codeFormRef = ref()
-/** 「记住我」读取到的账号密码；未保存时为 null */
+/** 「记住我」读取到的用户名；未保存时为 null */
 const remembered = getRememberedAccount()
-/** 仅密码登录使用：记住账号密码（不保持登录态），有保存记录时默认勾选 */
+/** 仅密码登录使用：记住用户名（不保存密码），有记录时默认勾选 */
 const rememberMe = ref(!!remembered)
 const pwdForm = ref({
   username: remembered?.username || '',
-  password: remembered?.password || ''
+  password: ''
 })
 const codeForm = ref({ account: '', code: '' })
 
@@ -128,7 +128,7 @@ function onPasswordLogin() {
     try {
       await userStore.doLogin(pwdForm.value.username, pwdForm.value.password)
       if (rememberMe.value) {
-        setRememberedAccount(pwdForm.value.username, pwdForm.value.password)
+        setRememberedAccount(pwdForm.value.username)
       } else {
         clearRememberedAccount()
       }
