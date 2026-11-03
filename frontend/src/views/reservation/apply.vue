@@ -139,6 +139,13 @@
         <el-form-item label="实验用途" prop="purpose">
           <el-input v-model="applyForm.purpose" type="textarea" :rows="3" maxlength="512" show-word-limit placeholder="请输入实验/课程名称与用途说明" />
         </el-form-item>
+        <!-- 周期预约：按「同一星期几、同一时段」连续提交，最多 8 周 -->
+        <el-form-item label="周期预约">
+          <el-select v-model="applyForm.repeatWeeks" style="width: 100%">
+            <el-option :value="1" label="仅本次" />
+            <el-option v-for="w in [2, 3, 4, 5, 6, 7, 8]" :key="w" :value="w" :label="`连续 ${w} 周（每周同一天同一时段）`" />
+          </el-select>
+        </el-form-item>
         <!-- 时段余量不够时提供候补入口，避免用户只能反复刷新等退单 -->
         <el-form-item v-if="needWaitlist" label=" ">
           <div class="waitlist-tip">
@@ -149,7 +156,32 @@
       </el-form>
       <template #footer>
         <el-button @click="applyVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submitting" @click="doSubmit">提交预约</el-button>
+        <el-button type="primary" :loading="submitting" @click="doSubmit">
+          {{ applyForm.repeatWeeks > 1 ? `提交 ${applyForm.repeatWeeks} 周预约` : '提交预约' }}
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 周期预约结果：逐期展示成功/失败，避免整批失败后不知道哪几周没约上 -->
+    <el-dialog v-model="recurringVisible" title="周期预约结果" width="520px">
+      <el-alert
+        :type="recurringResult?.failureCount ? 'warning' : 'success'"
+        :closable="false"
+        show-icon
+        :title="`成功 ${recurringResult?.successCount || 0} 期，失败 ${recurringResult?.failureCount || 0} 期`"
+        class="recurring-tip"
+      />
+      <div class="recurring-list">
+        <div v-for="item in recurringResult?.items || []" :key="item.date" class="recurring-item">
+          <span class="recurring-date">{{ item.date }}</span>
+          <el-tag :type="item.success ? 'success' : 'danger'" size="small">
+            {{ item.success ? '已提交' : '失败' }}
+          </el-tag>
+          <span class="recurring-msg">{{ item.success ? item.reservationNo : item.message }}</span>
+        </div>
+      </div>
+      <template #footer>
+        <el-button type="primary" @click="recurringVisible = false">知道了</el-button>
       </template>
     </el-dialog>
 
@@ -249,7 +281,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import {
-  reservationMine, reservationSubmit, reservationCancel, reservationReschedule,
+  reservationMine, reservationSubmit, reservationSubmitRecurring, reservationCancel, reservationReschedule,
   labList, slotAvailable, waitlistJoin, waitlistMine, waitlistCancel
 } from '@/api'
 
@@ -270,7 +302,11 @@ const applyFormRef = ref()
 const submitting = ref(false)
 const labs = ref([])
 const availableSlots = ref([])
-const applyForm = ref({ labId: null, reserveDate: null, startTime: '', endTime: '', peopleCount: 1, purpose: '' })
+const applyForm = ref({ labId: null, reserveDate: null, startTime: '', endTime: '', peopleCount: 1, purpose: '', repeatWeeks: 1 })
+
+// 周期预约结果
+const recurringVisible = ref(false)
+const recurringResult = ref(null)
 
 // 幂等令牌：同一份表单只允许成功提交一次，双击/网络重试不会生成两条预约
 // 不用 crypto.randomUUID（生产通过 http 访问属于非安全上下文，该方法不可用）
@@ -423,7 +459,7 @@ function doSubmit() {
     if (!slot) return
     submitting.value = true
     try {
-      await reservationSubmit({
+      const payload = {
         labId: applyForm.value.labId,
         reserveDate: applyForm.value.reserveDate,
         startTime: applyForm.value.startTime,
@@ -431,7 +467,24 @@ function doSubmit() {
         endTime: slot.endTime,
         peopleCount: applyForm.value.peopleCount,
         purpose: applyForm.value.purpose
-      }, idempotencyKey.value)
+      }
+      if (applyForm.value.repeatWeeks > 1) {
+        // 周期预约：逐期独立校验，失败明细弹窗展示
+        const result = await reservationSubmitRecurring({
+          ...payload,
+          repeatWeeks: applyForm.value.repeatWeeks
+        })
+        recurringResult.value = result
+        recurringVisible.value = true
+        if (result?.successCount) {
+          ElMessage.success(`已提交 ${result.successCount} 期预约，等待审批`)
+        }
+        applyVisible.value = false
+        resetForm()
+        load()
+        return
+      }
+      await reservationSubmit(payload, idempotencyKey.value)
       ElMessage.success('预约已提交，等待审批')
       applyVisible.value = false
       resetForm()
@@ -572,7 +625,7 @@ function viewDetail(row) {
 
 // 关闭/提交后清空表单，避免下次打开残留上一次的选择
 function resetForm() {
-  applyForm.value = { labId: null, reserveDate: null, startTime: '', endTime: '', peopleCount: 1, purpose: '' }
+  applyForm.value = { labId: null, reserveDate: null, startTime: '', endTime: '', peopleCount: 1, purpose: '', repeatWeeks: 1 }
   availableSlots.value = []
   applyFormRef.value?.clearValidate()
 }
@@ -588,6 +641,39 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* 周期预约结果：日期 + 状态 + 单号/原因，逐行对齐 */
+.recurring-tip {
+  margin-bottom: 10px;
+}
+
+.recurring-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.recurring-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  background: var(--card-bg-soft);
+  font-size: 13px;
+}
+
+.recurring-date {
+  flex: none;
+  color: var(--ink-2);
+}
+
+.recurring-msg {
+  min-width: 0;
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+}
+
 .slot-empty-tip {
   font-size: 12px;
   color: var(--ink-3);

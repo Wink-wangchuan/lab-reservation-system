@@ -39,6 +39,10 @@ public class NoticeServiceImpl implements NoticeService {
 
     private final SysNoticeMapper noticeMapper;
     private final SysUserMapper sysUserMapper;
+    /** SSE 实时推送：在线用户无需轮询即可收到新消息 */
+    private final NoticeStreamRegistry streamRegistry;
+    /** 外部通知渠道（飞书/企业微信），未配置时静默跳过 */
+    private final NoticeChannelService channelService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -46,7 +50,13 @@ public class NoticeServiceImpl implements NoticeService {
         if (userId == null || StrUtil.isBlank(title)) {
             return;
         }
-        noticeMapper.insert(build(userId, title, content, type, bizId));
+        SysNotice notice = build(userId, title, content, type, bizId);
+        noticeMapper.insert(notice);
+        // 事务提交后再推送，避免回滚了却已经把消息弹给用户
+        afterCommit(() -> {
+            streamRegistry.publish(userId, convert(notice));
+            channelService.dispatch(notice.getTitle(), notice.getContent());
+        });
     }
 
     @Override
@@ -137,6 +147,23 @@ public class NoticeServiceImpl implements NoticeService {
     }
 
     /* ==================== 辅助逻辑 ==================== */
+
+    /** 事务内注册提交后回调；无事务时立即执行 */
+    private void afterCommit(Runnable action) {
+        if (org.springframework.transaction.support.TransactionSynchronizationManager
+                .isSynchronizationActive()) {
+            org.springframework.transaction.support.TransactionSynchronizationManager
+                    .registerSynchronization(
+                            new org.springframework.transaction.support.TransactionSynchronization() {
+                                @Override
+                                public void afterCommit() {
+                                    action.run();
+                                }
+                            });
+        } else {
+            action.run();
+        }
+    }
 
     private SysNotice getNotice(Long id) {
         SysNotice notice = noticeMapper.selectById(id);

@@ -14,6 +14,8 @@ export const weatherNow = (params) => request.get('/weather/now', { params })
 
 // 用户
 export const userPage = (params) => request.get('/user/page', { params })
+export const userLabs = (id) => request.get(`/user/${id}/labs`)
+export const userAssignLabs = (id, labIds) => request.put(`/user/${id}/labs`, labIds)
 export const userDetail = (id) => request.get(`/user/${id}`)
 export const userAdd = (data) => request.post('/user', data)
 export const userEdit = (data) => request.put('/user', data)
@@ -72,6 +74,9 @@ export const closureList = (labId) => request.get('/lab/slot/closure', { params:
 export const closureAdd = (data) => request.post('/lab/slot/closure', data)
 export const closureDelete = (id) => request.delete(`/lab/slot/closure/${id}`)
 
+// 实验室周日程
+export const labWeekSchedule = (params) => request.get('/lab/schedule/week', { params })
+
 // 设备
 export const devicePage = (params) => request.get('/device/page', { params })
 export const deviceDetail = (id) => request.get(`/device/${id}`)
@@ -99,6 +104,7 @@ export const repairDeviceOptions = () => request.get('/repair/device-options')
 export const reservationSubmit = (data, idempotencyKey) =>
   request.post('/reservation/submit', data,
     idempotencyKey ? { headers: { 'X-Idempotency-Key': idempotencyKey } } : undefined)
+export const reservationSubmitRecurring = (data) => request.post('/reservation/submit-recurring', data)
 export const reservationCancel = (id, reason) =>
   request.put(`/reservation/${id}/cancel`, null, { params: { reason } })
 export const reservationReschedule = (id, data) => request.put(`/reservation/${id}/reschedule`, data)

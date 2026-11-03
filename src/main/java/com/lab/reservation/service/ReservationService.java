@@ -43,6 +43,12 @@ public interface ReservationService {
             com.lab.reservation.dto.BatchApprovalDTO dto);
 
     /**
+     * 周期预约：按周重复提交，逐期返回结果
+     */
+    com.lab.reservation.vo.RecurringResultVO submitRecurring(
+            com.lab.reservation.dto.RecurringReservationDTO dto);
+
+    /**
      * 分页查询我的预约（当前登录用户）
      */
     IPage<ReservationVO> pageMyReservations(IPage<ReservationVO> page, String status);

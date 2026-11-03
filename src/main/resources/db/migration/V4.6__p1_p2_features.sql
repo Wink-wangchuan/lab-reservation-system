@@ -71,7 +71,8 @@ INSERT IGNORE INTO sys_config (id, config_key, config_value, value_type, group_n
 (40005, 'schedule.remind',           'true',  'BOOLEAN', '定时任务', '开始前提醒', '预约开始前 30 分钟推送站内提醒'),
 (40006, 'schedule.repair-sla',       'true',  'BOOLEAN', '定时任务', '报修超时提醒', '报修单超过 SLA 截止时间后提醒处理人'),
 (40007, 'notify.webhook.feishu',     '',      'SECRET',  '外部通知', '飞书机器人 Webhook', '留空则不发送；配置后重要通知同步推送'),
-(40008, 'notify.webhook.wecom',      '',      'SECRET',  '外部通知', '企业微信机器人 Webhook', '留空则不发送；配置后重要通知同步推送');
+(40008, 'notify.webhook.wecom',      '',      'SECRET',  '外部通知', '企业微信机器人 Webhook', '留空则不发送；配置后重要通知同步推送'),
+(40009, 'notify.external.enabled',   'false', 'BOOLEAN', '外部通知', '启用外部通知', '开启后才向已配置的飞书/企业微信 webhook 推送');
 
 -- ---------- 4. 系统公告 ----------
 CREATE TABLE IF NOT EXISTS sys_announcement (

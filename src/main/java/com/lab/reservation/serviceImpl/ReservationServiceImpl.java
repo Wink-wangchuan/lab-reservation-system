@@ -109,6 +109,9 @@ public class ReservationServiceImpl implements ReservationService {
     /** 系统设置：定时任务开关可在管理页实时启停 */
     private final com.lab.reservation.service.SysConfigService sysConfigService;
 
+    /** 数据权限：受限用户只能看到授权实验室的预约 */
+    private final com.lab.reservation.service.DataScopeService dataScopeService;
+
     /** 批量审批按单开启独立事务：某一张失败不牵连已成功的单据 */
     private final org.springframework.transaction.PlatformTransactionManager transactionManager;
 
@@ -639,6 +642,41 @@ public class ReservationServiceImpl implements ReservationService {
     }
 
     @Override
+    public com.lab.reservation.vo.RecurringResultVO submitRecurring(
+            com.lab.reservation.dto.RecurringReservationDTO dto) {
+        com.lab.reservation.vo.RecurringResultVO result =
+                new com.lab.reservation.vo.RecurringResultVO();
+        int weeks = dto.getRepeatWeeks() == null ? 1 : dto.getRepeatWeeks();
+
+        org.springframework.transaction.support.TransactionTemplate template =
+                new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+        template.setPropagationBehavior(
+                org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        for (int i = 0; i < weeks; i++) {
+            ReservationSubmitDTO single = new ReservationSubmitDTO();
+            org.springframework.beans.BeanUtils.copyProperties(dto, single);
+            LocalDate date = dto.getReserveDate().plusWeeks(i);
+            single.setReserveDate(date);
+            try {
+                ReservationVO vo = template.execute(status -> submit(single));
+                result.addSuccess(date,
+                        vo == null ? null : vo.getId(),
+                        vo == null ? null : vo.getReservationNo());
+            } catch (BusinessException e) {
+                result.addFailure(date, e.getMessage());
+            } catch (Exception e) {
+                log.warn("[预约] 周期预约 {} 失败", date, e);
+                result.addFailure(date, "系统异常，请稍后重试");
+            }
+        }
+        log.info("[预约] 周期预约完成：实验室={} 起始日={} 周数={} 成功={} 失败={}",
+                dto.getLabId(), dto.getReserveDate(), weeks,
+                result.getSuccessCount(), result.getFailureCount());
+        return result;
+    }
+
+    @Override
     public IPage<ReservationVO> pageMyReservations(IPage<ReservationVO> page, String status) {
         Long userId = SecurityUtil.getUserId();
         LambdaQueryWrapper<LabReservation> wrapper = new LambdaQueryWrapper<LabReservation>()
@@ -651,8 +689,12 @@ public class ReservationServiceImpl implements ReservationService {
     @Override
     public IPage<ReservationVO> pageAll(IPage<ReservationVO> page, Long labId,
                                         String status, String keyword) {
+        Set<Long> visible = dataScopeService.currentVisibleLabIds();
         LambdaQueryWrapper<LabReservation> wrapper = new LambdaQueryWrapper<LabReservation>()
                 .eq(labId != null, LabReservation::getLabId, labId)
+                // 数据权限：配置了可见实验室的用户只查授权范围；空集合直接查不到数据
+                .in(visible != null, LabReservation::getLabId, visible == null || visible.isEmpty()
+                        ? List.of(-1L) : visible)
                 .eq(StrUtil.isNotBlank(status), LabReservation::getStatus, status)
                 .and(StrUtil.isNotBlank(keyword), w -> w
                         .like(LabReservation::getReservationNo, keyword)

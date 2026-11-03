@@ -38,6 +38,7 @@ import cn.hutool.core.util.StrUtil;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 设备报修闭环服务实现
@@ -70,6 +71,8 @@ public class DeviceRepairServiceImpl implements DeviceRepairService {
     private final SysUserMapper userMapper;
     /** 系统设置：超时提醒可在管理页实时启停 */
     private final com.lab.reservation.service.SysConfigService sysConfigService;
+    /** 数据权限：受限用户只能看到授权实验室的报修单 */
+    private final com.lab.reservation.service.DataScopeService dataScopeService;
 
     /** 维修处理权限码 */
     private static final String PERM_HANDLE = "device:repair:handle";
@@ -231,8 +234,11 @@ public class DeviceRepairServiceImpl implements DeviceRepairService {
     @Override
     public IPage<RepairVO> page(IPage<RepairVO> page, Long labId, String status, String keyword,
                                 String priority, Boolean overdue) {
+        Set<Long> visible = dataScopeService.currentVisibleLabIds();
         LambdaQueryWrapper<DeviceRepair> wrapper = new LambdaQueryWrapper<DeviceRepair>()
                 .eq(labId != null, DeviceRepair::getLabId, labId)
+                .in(visible != null, DeviceRepair::getLabId, visible == null || visible.isEmpty()
+                        ? List.of(-1L) : visible)
                 .eq(StrUtil.isNotBlank(status), DeviceRepair::getStatus, status)
                 .eq(StrUtil.isNotBlank(priority), DeviceRepair::getPriority, priority)
                 .in(Boolean.TRUE.equals(overdue), DeviceRepair::getStatus, ACTIVE_STATUS)

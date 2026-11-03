@@ -137,6 +137,7 @@ import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { useTheme } from '@/utils/theme'
+import { openNoticeStream } from '@/utils/noticeStream'
 import { noticeMine, noticeUnreadCount, weatherNow, portalStatus } from '@/api'
 import SideMenu from './SideMenu.vue'
 import NoticeToast from './NoticeToast.vue'
@@ -292,6 +293,7 @@ const menuDefs = [
   { path: '/checkin/verify', title: '签到核销', icon: 'CircleCheck', perms: ['checkin:verify'] },
   { path: '/lab/info', title: '实验室管理', icon: 'OfficeBuilding', perms: ['system:lab:list'] },
   { path: '/lab/slot', title: '开放时段配置', icon: 'Timer', perms: ['system:lab:slotConfig'] },
+  { path: '/lab/schedule', title: '实验室周日程', icon: 'Calendar', always: true },
   { path: '/device/list', title: '设备台账', icon: 'Monitor', perms: ['system:device:list'] },
   { path: '/device/repair', title: '报修闭环', icon: 'Tools', perms: ['device:repair:list', 'device:repair:submit'] },
   { path: '/notice', title: '消息中心', icon: 'Bell', perms: ['notice:mine', 'notice:list'] },
@@ -302,6 +304,7 @@ const menuDefs = [
   { path: '/system/knowledge', title: 'AI 知识库', icon: 'Reading', perms: ['system:knowledge:manage'] },
   { path: '/system/setting', title: '系统设置', icon: 'Setting', perms: ['system:config:manage'] },
   { path: '/system/announcement', title: '系统公告', icon: 'BellFilled', perms: ['system:announcement:manage'] },
+  { path: '/system/data-scope', title: '数据权限', icon: 'Lock', perms: ['system:user:edit'] },
   { path: '/ai', title: 'AI 助手', icon: 'ChatDotRound', always: true },
   { path: '/profile', title: '个人中心', icon: 'UserFilled', always: true }
 ]
@@ -353,6 +356,19 @@ function baselineStorageKey() {
 let lastNoticeId = 0
 let baselineChecked = false
 let baselineReady = false
+
+// —— SSE 实时推送 ——
+// 轮询（60s）保留作为兜底：SSE 连接断开或服务重启时仍能靠轮询补到消息
+let streamHandle = null
+
+function onStreamNotice(notice) {
+  if (!notice || !notice.id) return
+  const id = Number(notice.id)
+  if (id <= lastNoticeId) return
+  saveLastNoticeId(id)
+  unread.value += 1
+  notifyNewNotices([notice])
+}
 
 function saveLastNoticeId(id) {
   lastNoticeId = id
@@ -526,6 +542,8 @@ onMounted(() => {
   // 维护模式与公告横幅
   loadPortal()
   portalTimer = setInterval(loadPortal, 5 * 60 * 1000)
+  // 实时消息流：连上后新消息立即弹出，无需等待下一次轮询
+  streamHandle = openNoticeStream({ onNotice: onStreamNotice })
   window.addEventListener('resize', trackWidth)
   bindIdleWatch()
 })
@@ -535,6 +553,7 @@ onBeforeUnmount(() => {
   if (clockTimer) clearInterval(clockTimer)
   if (weatherTimer) clearInterval(weatherTimer)
   if (portalTimer) clearInterval(portalTimer)
+  streamHandle?.close()
   window.removeEventListener('resize', trackWidth)
   unbindIdleWatch()
 })

@@ -20,8 +20,22 @@
         <el-button type="primary" size="large" :loading="verifying" @click="doVerify">
           核销签到
         </el-button>
+        <el-button size="large" @click="openScan">
+          <el-icon><Camera /></el-icon> 扫码核销
+        </el-button>
       </div>
       <el-input v-model="remark" placeholder="核销备注（可选，如：已核验学生证件）" clearable />
+
+      <!-- 摄像头扫码：识别学生出示的签到二维码后自动填入并核销 -->
+      <el-dialog v-model="scanVisible" title="扫码核销" width="440px" align-center @closed="stopScan">
+        <div class="scan-body">
+          <video ref="scanVideo" class="scan-video" playsinline muted />
+          <div class="scan-tip">{{ scanTip }}</div>
+        </div>
+        <template #footer>
+          <el-button @click="scanVisible = false">关闭</el-button>
+        </template>
+      </el-dialog>
 
       <transition name="fade-slide">
         <div v-if="lastResult" class="verify-result" :class="{ ok: lastResult.ok }">
@@ -110,7 +124,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { checkinVerify, checkinPage, checkinCheckout } from '@/api'
 import { useUserStore } from '@/store/user'
 
@@ -186,6 +200,80 @@ async function doVerify() {
   }
 }
 
+// ===== 摄像头扫码核销 =====
+// 浏览器原生 BarcodeDetector 可用时直接扫码；不支持的浏览器（如老版 WebView）提示手动输入
+const scanVisible = ref(false)
+const scanVideo = ref(null)
+const scanTip = ref('')
+let scanStream = null
+let scanRaf = null
+let detector = null
+let scanStopped = true
+
+async function openScan() {
+  if (!('BarcodeDetector' in window) || !navigator.mediaDevices?.getUserMedia) {
+    ElMessage.warning('当前浏览器不支持扫码，请手动输入 6 位核销码')
+    return
+  }
+  scanVisible.value = true
+  scanTip.value = '正在启动摄像头…'
+  scanStopped = false
+  try {
+    scanStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment' }
+    })
+  } catch {
+    scanTip.value = '无法访问摄像头，请检查浏览器/系统权限，或改用手动输入'
+    return
+  }
+  await nextTick()
+  if (!scanVideo.value) {
+    stopScan()
+    return
+  }
+  scanVideo.value.srcObject = scanStream
+  try {
+    await scanVideo.value.play()
+    detector = new window.BarcodeDetector({ formats: ['qr_code'] })
+    scanTip.value = '将学生出示的二维码对准取景框'
+    scanLoop()
+  } catch (e) {
+    scanTip.value = `摄像头启动失败：${e?.message || '未知错误'}`
+  }
+}
+
+async function scanLoop() {
+  if (scanStopped) return
+  try {
+    const codes = await detector.detect(scanVideo.value)
+    if (codes?.length) {
+      // 二维码内容就是 6 位核销码，兼容日后扩展为「前缀+码」的格式
+      const matched = /\d{6}/.exec(codes[0].rawValue || '')
+      if (matched) {
+        code.value = matched[0]
+        scanTip.value = `已识别核销码 ${matched[0]}，正在核销…`
+        stopScan()
+        scanVisible.value = false
+        await doVerify()
+        return
+      }
+    }
+  } catch {
+    // 单帧识别失败忽略，继续下一帧
+  }
+  scanRaf = requestAnimationFrame(scanLoop)
+}
+
+function stopScan() {
+  scanStopped = true
+  if (scanRaf) cancelAnimationFrame(scanRaf)
+  scanRaf = null
+  detector = null
+  scanStream?.getTracks().forEach((track) => track.stop())
+  scanStream = null
+  if (scanVideo.value) scanVideo.value.srcObject = null
+}
+
 function doCheckout(row) {
   ElMessageBox.confirm(`确认为「${row.userName}」签退吗？`, '签退确认', {
     confirmButtonText: '确认签退',
@@ -202,6 +290,28 @@ onMounted(load)
 </script>
 
 <style scoped lang="scss">
+/* 扫码取景框：固定比例，避免不同摄像头分辨率把弹窗撑变形 */
+.scan-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.scan-video {
+  width: 100%;
+  max-height: 320px;
+  border-radius: 10px;
+  background: #000;
+  object-fit: cover;
+}
+
+.scan-tip {
+  font-size: 13px;
+  color: var(--ink-3);
+  text-align: center;
+}
+
 .verify-card {
   display: flex;
   flex-direction: column;

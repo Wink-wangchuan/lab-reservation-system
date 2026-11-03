@@ -15,6 +15,7 @@ import com.lab.reservation.exception.BusinessException;
 import com.lab.reservation.mapper.DeviceMapper;
 import com.lab.reservation.mapper.LabInfoMapper;
 import com.lab.reservation.mapper.LabReservationMapper;
+import com.lab.reservation.service.DataScopeService;
 import com.lab.reservation.service.LabInfoService;
 import com.lab.reservation.vo.LabInfoVO;
 import lombok.RequiredArgsConstructor;
@@ -48,14 +49,19 @@ public class LabInfoServiceImpl implements LabInfoService {
     private final LabInfoMapper labInfoMapper;
     private final DeviceMapper deviceMapper;
     private final LabReservationMapper reservationMapper;
+    /** 数据权限：受限用户只看到被授权的实验室 */
+    private final DataScopeService dataScopeService;
 
     @Override
     public IPage<LabInfoVO> page(IPage<LabInfoVO> page, String labType, String labName,
                                  Integer openStatus, String keyword) {
+        Set<Long> visible = dataScopeService.currentVisibleLabIds();
         LambdaQueryWrapper<LabInfo> wrapper = new LambdaQueryWrapper<LabInfo>()
                 .eq(StrUtil.isNotBlank(labType), LabInfo::getLabType, labType)
                 .like(StrUtil.isNotBlank(labName), LabInfo::getLabName, labName)
                 .eq(openStatus != null, LabInfo::getOpenStatus, openStatus)
+                .in(visible != null, LabInfo::getId, visible == null || visible.isEmpty()
+                        ? List.of(-1L) : visible)
                 .and(StrUtil.isNotBlank(keyword), w -> w
                         .like(LabInfo::getLabCode, keyword)
                         .or().like(LabInfo::getLabName, keyword)
@@ -71,8 +77,11 @@ public class LabInfoServiceImpl implements LabInfoService {
 
     @Override
     public List<LabInfoVO> listAll() {
+        Set<Long> visible = dataScopeService.currentVisibleLabIds();
         return convertBatch(labInfoMapper.selectList(new LambdaQueryWrapper<LabInfo>()
                 .eq(LabInfo::getEnableReserve, 1)
+                .in(visible != null, LabInfo::getId, visible == null || visible.isEmpty()
+                        ? List.of(-1L) : visible)
                 .orderByAsc(LabInfo::getLabName)));
     }
 

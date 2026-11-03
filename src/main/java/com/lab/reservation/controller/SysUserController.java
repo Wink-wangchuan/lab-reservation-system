@@ -6,6 +6,7 @@ import com.lab.reservation.aop.OperationLog;
 import com.lab.reservation.common.PageVO;
 import com.lab.reservation.common.Result;
 import com.lab.reservation.dto.SysUserDTO;
+import com.lab.reservation.service.DataScopeService;
 import com.lab.reservation.service.SysUserAdminService;
 import com.lab.reservation.vo.SysUserVO;
 import com.lab.reservation.vo.UserOptionVO;
@@ -31,6 +32,7 @@ import java.util.List;
 public class SysUserController {
 
     private final SysUserAdminService userService;
+    private final DataScopeService dataScopeService;
 
     @Operation(summary = "用户分页")
     @GetMapping("/page")
@@ -114,6 +116,22 @@ public class SysUserController {
     public Result<Void> delete(@PathVariable Long id) {
         userService.delete(id);
         return Result.success("用户删除成功", null);
+    }
+
+    @Operation(summary = "查询用户数据范围（可见实验室）")
+    @GetMapping("/{id}/labs")
+    @PreAuthorize("hasAuthority('system:user:edit')")
+    public Result<List<Long>> labs(@PathVariable Long id) {
+        return Result.success(dataScopeService.labsOf(id));
+    }
+
+    @Operation(summary = "设置用户数据范围（可见实验室）")
+    @PutMapping("/{id}/labs")
+    @OperationLog(module = "用户管理", businessType = "update", description = "设置用户数据范围")
+    @PreAuthorize("hasAuthority('system:user:edit')")
+    public Result<Void> assignLabs(@PathVariable Long id, @RequestBody List<Long> labIds) {
+        dataScopeService.assignLabs(id, labIds);
+        return Result.success("数据范围已更新", null);
     }
 
     @Operation(summary = "为用户分配角色")

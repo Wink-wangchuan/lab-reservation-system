@@ -7,14 +7,18 @@ import com.lab.reservation.common.PageVO;
 import com.lab.reservation.common.Result;
 import com.lab.reservation.dto.NoticeSendDTO;
 import com.lab.reservation.enums.NoticeType;
+import com.lab.reservation.security.SecurityUtil;
 import com.lab.reservation.service.NoticeService;
+import com.lab.reservation.serviceImpl.NoticeStreamRegistry;
 import com.lab.reservation.vo.NoticeVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
 
@@ -24,13 +28,22 @@ import java.util.List;
  * @author LabWise
  * @since 1.1.0
  */
-@Tag(name = "消息中心", description = "站内消息查询、已读、发送")
+@Tag(name = "消息中心", description = "站内消息查询、已读、发送、实时推送")
 @RestController
 @RequestMapping("/api/notice")
 @RequiredArgsConstructor
 public class NoticeController {
 
     private final NoticeService noticeService;
+    private final NoticeStreamRegistry streamRegistry;
+
+    @Operation(summary = "实时消息流（SSE）")
+    @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @PreAuthorize("isAuthenticated()")
+    public SseEmitter stream() {
+        // 前端用 fetch 携带 Authorization 头读取，避免把 JWT 放到 URL 查询参数里
+        return streamRegistry.subscribe(SecurityUtil.getUserId());
+    }
 
     @Operation(summary = "我的消息分页")
     @GetMapping("/mine")

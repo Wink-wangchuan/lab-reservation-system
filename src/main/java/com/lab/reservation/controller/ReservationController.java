@@ -53,6 +53,16 @@ public class ReservationController {
         return Result.success("预约提交成功，等待审核", reservationService.submit(dto));
     }
 
+    @Operation(summary = "周期预约（按周重复 N 周）")
+    @PostMapping("/submit-recurring")
+    @OperationLog(module = "预约管理", businessType = "insert", description = "提交周期预约")
+    @PreAuthorize("hasAuthority('reservation:submit')")
+    @RateLimit(limit = 3, seconds = 60)
+    public Result<com.lab.reservation.vo.RecurringResultVO> submitRecurring(
+            @Valid @RequestBody com.lab.reservation.dto.RecurringReservationDTO dto) {
+        return Result.success("周期预约已处理", reservationService.submitRecurring(dto));
+    }
+
     @Operation(summary = "预约改期（本人）")
     @PutMapping("/{id}/reschedule")
     @OperationLog(module = "预约管理", businessType = "update", description = "预约改期")

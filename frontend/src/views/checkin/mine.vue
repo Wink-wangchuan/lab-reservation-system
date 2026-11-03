@@ -101,8 +101,10 @@
         <div class="code-lab">{{ current.labName }}</div>
         <div class="code-range">{{ current.reserveDate }} {{ hhmm(current.startTime) }} - {{ hhmm(current.endTime) }}</div>
         <div class="code-digits">{{ formattedCode }}</div>
+        <!-- 二维码承载与人工核销相同的 6 位码，教师扫码即可完成核销 -->
+        <img v-if="codeQr" :src="codeQr" class="code-qr" alt="签到二维码" />
         <div class="code-tip">
-          请在开放时段内（可提前 30 分钟）到实验室，由管理员/教师输入该码完成核销签到。
+          请在开放时段内（可提前 30 分钟）到实验室，出示二维码由教师扫码核销，或由管理员输入核销码。
         </div>
       </div>
     </el-dialog>
@@ -144,6 +146,7 @@ function statusType(s) {
 
 const codeVisible = ref(false)
 const current = ref(null)
+const codeQr = ref('')
 // 核销码按位拆开，避免在窄屏上连成一串不易逐位核对
 function formatCode(code) {
   return code ? String(code).split('').join(' ') : ''
@@ -165,7 +168,17 @@ async function load() {
 async function showCode(row) {
   const data = await checkinCode(row.reservationId)
   current.value = data
+  codeQr.value = ''
   codeVisible.value = true
+  // 二维码只在对话框打开时生成，避免列表渲染阶段计算大量图片
+  if (data?.checkinCode) {
+    const { default: QRCode } = await import('qrcode')
+    codeQr.value = await QRCode.toDataURL(String(data.checkinCode), {
+      width: 180,
+      margin: 1,
+      errorCorrectionLevel: 'M'
+    })
+  }
 }
 
 function doCheckout(row) {
@@ -222,6 +235,16 @@ onUnmounted(() => {
   letter-spacing: 6px;
   font-variant-numeric: tabular-nums;
   box-shadow: 0 10px 26px rgba(91, 140, 255, 0.35);
+}
+
+.code-qr {
+  display: block;
+  width: 180px;
+  height: 180px;
+  margin: 10px auto 0;
+  padding: 6px;
+  border-radius: 8px;
+  background: #fff;
 }
 
 .code-tip {

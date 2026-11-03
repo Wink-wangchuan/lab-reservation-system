@@ -67,6 +67,12 @@ const routes = [
         name: 'LabSlot',
         component: () => import('@/views/lab/slot.vue'),
         meta: { title: '开放时段配置', icon: 'Timer', perms: ['system:lab:slotConfig'] }
+      },
+      {
+        path: 'schedule',
+        name: 'LabSchedule',
+        component: () => import('@/views/lab/schedule.vue'),
+        meta: { title: '实验室周日程', icon: 'Calendar' }
       }
     ]
   },
@@ -199,6 +205,12 @@ const routes = [
         name: 'SysAnnouncement',
         component: () => import('@/views/system/announcement.vue'),
         meta: { title: '系统公告', icon: 'BellFilled', perms: ['system:announcement:manage'] }
+      },
+      {
+        path: 'data-scope',
+        name: 'DataScope',
+        component: () => import('@/views/system/data-scope.vue'),
+        meta: { title: '数据权限', icon: 'Lock', perms: ['system:user:edit'] }
       }
     ]
   },
