@@ -90,6 +90,8 @@ export const repairCancel = (id, remark) =>
 export const repairPage = (params) => request.get('/repair/page', { params })
 export const repairMine = (params) => request.get('/repair/mine', { params })
 export const repairDetail = (id) => request.get(`/repair/${id}`)
+export const repairSla = (id, data) => request.put(`/repair/${id}/sla`, data)
+export const repairHandlers = () => request.get('/repair/handlers')
 // 报修可选设备清单（精简字段，普通用户无需设备台账权限即可获取）
 export const repairDeviceOptions = () => request.get('/repair/device-options')
 
@@ -111,6 +113,30 @@ export const waitlistMine = () => request.get('/reservation/waitlist/mine')
 export const waitlistCancel = (id) => request.delete(`/reservation/waitlist/${id}`)
 // 导出 Excel：必须走 axios 以携带 JWT，并用 blob 接收二进制流
 export const reservationExport = (params) => request.get('/reservation/export', { params, responseType: 'blob' })
+
+// AI 知识库后台管理
+export const knowledgePage = (params) => request.get('/knowledge/page', { params })
+export const knowledgeCategories = () => request.get('/knowledge/categories')
+export const knowledgeCreate = (data) => request.post('/knowledge', data)
+export const knowledgeUpdate = (id, data) => request.put(`/knowledge/${id}`, data)
+export const knowledgeDelete = (id) => request.delete(`/knowledge/${id}`)
+export const knowledgeSetStatus = (id, status) =>
+  request.put(`/knowledge/${id}/status`, null, { params: { status } })
+export const knowledgeTest = (question, limit = 5) =>
+  request.post('/knowledge/test', null, { params: { question, limit } })
+export const knowledgeExport = () => request.get('/knowledge/export')
+export const knowledgeImport = (items) => request.post('/knowledge/import', items)
+
+// 系统设置 / 公告 / 门户状态
+export const sysConfigList = () => request.get('/system/config')
+export const sysConfigUpdate = (data) => request.put('/system/config', data)
+export const announcementPage = (params) => request.get('/system/announcement/page', { params })
+export const announcementCreate = (data) => request.post('/system/announcement', data)
+export const announcementUpdate = (id, data) => request.put(`/system/announcement/${id}`, data)
+export const announcementDelete = (id) => request.delete(`/system/announcement/${id}`)
+export const announcementSetStatus = (id, status) =>
+  request.put(`/system/announcement/${id}/status`, null, { params: { status } })
+export const portalStatus = () => request.get('/portal/status')
 
 // 统计（ECharts 数据源）
 export const statsOverview = () => request.get('/stats/overview')

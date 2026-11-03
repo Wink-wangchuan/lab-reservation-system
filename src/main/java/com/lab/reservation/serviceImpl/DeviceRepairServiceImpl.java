@@ -5,10 +5,13 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.lab.reservation.common.ResultCode;
 import com.lab.reservation.dto.DeviceRepairDTO;
+import com.lab.reservation.dto.RepairSlaDTO;
 import com.lab.reservation.entity.Device;
 import com.lab.reservation.entity.DeviceRepair;
 import com.lab.reservation.entity.LabInfo;
+import com.lab.reservation.entity.SysUser;
 import com.lab.reservation.enums.NoticeType;
+import com.lab.reservation.enums.RepairPriority;
 import com.lab.reservation.enums.RepairStatus;
 import com.lab.reservation.exception.BusinessException;
 import com.lab.reservation.mapper.DeviceMapper;
@@ -22,9 +25,11 @@ import com.lab.reservation.service.DeviceRepairService;
 import com.lab.reservation.service.NoticeService;
 import com.lab.reservation.service.StatisticsService;
 import com.lab.reservation.vo.RepairDeviceOptionVO;
+import com.lab.reservation.vo.RepairHandlerVO;
 import com.lab.reservation.vo.RepairVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.BeanUtils;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -63,6 +68,8 @@ public class DeviceRepairServiceImpl implements DeviceRepairService {
     private final LabInfoMapper labInfoMapper;
     /** 校验实验室负责人是否仍是可用账号，避免把消息推给已删除/停用账号 */
     private final SysUserMapper userMapper;
+    /** 系统设置：超时提醒可在管理页实时启停 */
+    private final com.lab.reservation.service.SysConfigService sysConfigService;
 
     /** 维修处理权限码 */
     private static final String PERM_HANDLE = "device:repair:handle";
@@ -103,6 +110,11 @@ public class DeviceRepairServiceImpl implements DeviceRepairService {
         repair.setReporterName(current.getRealName());
         repair.setFaultDesc(dto.getFaultDesc());
         repair.setStatus(RepairStatus.PENDING.name());
+        // 优先级决定默认 SLA：提交时间 + 对应小时数，后续可由管理员调整
+        RepairPriority priority = RepairPriority.of(dto.getPriority());
+        repair.setPriority(priority.name());
+        repair.setExpectedFinishTime(LocalDateTime.now().plusHours(priority.getSlaHours()));
+        repair.setSlaNotified(0);
         repairMapper.insert(repair);
 
         // 2. 锁定设备（故障），进而锁定所属实验室预约
@@ -217,10 +229,14 @@ public class DeviceRepairServiceImpl implements DeviceRepairService {
     }
 
     @Override
-    public IPage<RepairVO> page(IPage<RepairVO> page, Long labId, String status, String keyword) {
+    public IPage<RepairVO> page(IPage<RepairVO> page, Long labId, String status, String keyword,
+                                String priority, Boolean overdue) {
         LambdaQueryWrapper<DeviceRepair> wrapper = new LambdaQueryWrapper<DeviceRepair>()
                 .eq(labId != null, DeviceRepair::getLabId, labId)
                 .eq(StrUtil.isNotBlank(status), DeviceRepair::getStatus, status)
+                .eq(StrUtil.isNotBlank(priority), DeviceRepair::getPriority, priority)
+                .in(Boolean.TRUE.equals(overdue), DeviceRepair::getStatus, ACTIVE_STATUS)
+                .lt(Boolean.TRUE.equals(overdue), DeviceRepair::getExpectedFinishTime, LocalDateTime.now())
                 .and(StrUtil.isNotBlank(keyword), w -> w
                         .like(DeviceRepair::getRepairNo, keyword)
                         .or().like(DeviceRepair::getDeviceName, keyword)
@@ -257,6 +273,113 @@ public class DeviceRepairServiceImpl implements DeviceRepairService {
                     vo.setFaultStatus(device.getFaultStatus());
                     return vo;
                 }).toList();
+    }
+
+    /** 默认开启超时提醒；可在系统设置中关闭 */
+    @org.springframework.beans.factory.annotation.Value("${lab.schedule.repair-sla:true}")
+    private boolean slaRemindEnabled = true;
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public RepairVO updateSla(Long repairId, RepairSlaDTO dto) {
+        DeviceRepair repair = getRepair(repairId);
+        if (!ACTIVE_STATUS.contains(repair.getStatus())) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "已结束的报修单不能再调整 SLA");
+        }
+        RepairPriority priority = RepairPriority.of(dto.getPriority() == null
+                ? repair.getPriority() : dto.getPriority());
+        boolean priorityChanged = !priority.name().equals(repair.getPriority());
+        repair.setPriority(priority.name());
+
+        // 预计完成时间：显式传值优先；否则优先级变更后按「现在 + 默认 SLA」重算
+        if (dto.getExpectedFinishTime() != null) {
+            if (dto.getExpectedFinishTime().isBefore(LocalDateTime.now())) {
+                throw new BusinessException(ResultCode.PARAM_ERROR, "预计完成时间不能早于当前时间");
+            }
+            repair.setExpectedFinishTime(dto.getExpectedFinishTime());
+            repair.setSlaNotified(0);
+        } else if (priorityChanged || repair.getExpectedFinishTime() == null) {
+            repair.setExpectedFinishTime(LocalDateTime.now().plusHours(priority.getSlaHours()));
+            repair.setSlaNotified(0);
+        }
+
+        // 指派处理人：0 表示取消指派
+        if (dto.getAssigneeId() != null) {
+            if (dto.getAssigneeId() == 0L) {
+                repair.setAssigneeId(null);
+                repair.setAssigneeName(null);
+            } else {
+                SysUser assignee = userMapper.selectById(dto.getAssigneeId());
+                if (assignee == null || assignee.getStatus() == null || assignee.getStatus() != 1) {
+                    throw new BusinessException(ResultCode.PARAM_ERROR, "指派处理人不存在或已停用");
+                }
+                boolean changed = !dto.getAssigneeId().equals(repair.getAssigneeId());
+                repair.setAssigneeId(assignee.getId());
+                repair.setAssigneeName(assignee.getRealName());
+                if (changed) {
+                    noticeService.push(assignee.getId(), "你被指派了一张报修单",
+                            String.format("设备「%s」的报修单 %s 已指派给你，优先级 %s，请在 %s 前完成处理。",
+                                    repair.getDeviceName(), repair.getRepairNo(),
+                                    priority.getDesc(),
+                                    repair.getExpectedFinishTime() == null ? "截止时间未设置"
+                                            : repair.getExpectedFinishTime()),
+                            NoticeType.REPAIR, repair.getId());
+                }
+            }
+        }
+        repairMapper.updateById(repair);
+        return convert(repair);
+    }
+
+    @Override
+    public List<RepairHandlerVO> handlers() {
+        List<Long> ids = roleMapper.selectUserIdsByPermission(PERM_HANDLE);
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        return userMapper.selectBatchIds(ids).stream()
+                .filter(u -> u.getStatus() != null && u.getStatus() == 1)
+                .map(u -> new RepairHandlerVO(u.getId(), u.getRealName()))
+                .toList();
+    }
+
+    @Override
+    @Scheduled(cron = "0 */30 * * * ?")
+    public int remindOverdue() {
+        if (!slaRemindEnabled
+                || !sysConfigService.getBoolean("schedule.repair-sla", true)) {
+            return 0;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        List<DeviceRepair> overdueList = repairMapper.selectList(new LambdaQueryWrapper<DeviceRepair>()
+                .in(DeviceRepair::getStatus, ACTIVE_STATUS)
+                .isNotNull(DeviceRepair::getExpectedFinishTime)
+                .lt(DeviceRepair::getExpectedFinishTime, now)
+                .and(w -> w.eq(DeviceRepair::getSlaNotified, 0).or().isNull(DeviceRepair::getSlaNotified))
+                .last("LIMIT 200"));
+        if (overdueList.isEmpty()) {
+            return 0;
+        }
+        int sent = 0;
+        for (DeviceRepair repair : overdueList) {
+            List<Long> targets = new java.util.ArrayList<>();
+            if (repair.getAssigneeId() != null) {
+                targets.add(repair.getAssigneeId());
+            } else {
+                targets.addAll(roleMapper.selectUserIdsByPermission(PERM_HANDLE));
+            }
+            targets.removeIf(id -> id.equals(repair.getReporterId()));
+            noticeService.pushAll(targets, "报修工单已超时",
+                    String.format("设备「%s」的报修单 %s（优先级 %s）已超过预计完成时间 %s，请尽快处理。",
+                            repair.getDeviceName(), repair.getRepairNo(),
+                            RepairPriority.of(repair.getPriority()).getDesc(),
+                            repair.getExpectedFinishTime()),
+                    NoticeType.REPAIR, repair.getId());
+            repair.setSlaNotified(1);
+            repairMapper.updateById(repair);
+            sent++;
+        }
+        return sent;
     }
 
     /* ==================== 辅助逻辑 ==================== */
@@ -359,6 +482,12 @@ public class DeviceRepairServiceImpl implements DeviceRepairService {
         BeanUtils.copyProperties(repair, vo);
         RepairStatus status = RepairStatus.of(repair.getStatus());
         vo.setStatusDesc(status == null ? "未知" : status.getDesc());
+        RepairPriority priority = RepairPriority.of(repair.getPriority());
+        vo.setPriorityDesc(priority.getDesc());
+        // 仅进行中的工单才有「超时」语义，已完成/已取消即使过了截止时间也不算超时
+        boolean active = ACTIVE_STATUS.contains(repair.getStatus());
+        vo.setOverdue(active && repair.getExpectedFinishTime() != null
+                && repair.getExpectedFinishTime().isBefore(LocalDateTime.now()));
         return vo;
     }
 }

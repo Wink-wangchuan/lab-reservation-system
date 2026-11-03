@@ -39,6 +39,9 @@ public class DeviceRepair extends BaseEntity {
     /** 故障描述 */
     private String faultDesc;
 
+    /** 优先级：LOW/NORMAL/HIGH/URGENT（决定默认 SLA 时长） */
+    private String priority;
+
     /** 状态：PENDING/REPAIRING/COMPLETED/CANCELLED */
     private String status;
 
@@ -47,6 +50,18 @@ public class DeviceRepair extends BaseEntity {
 
     /** 处理人姓名 */
     private String handlerName;
+
+    /** 指派处理人ID（管理员指定，可为空） */
+    private Long assigneeId;
+
+    /** 指派处理人姓名 */
+    private String assigneeName;
+
+    /** 预计完成时间（SLA 截止） */
+    private LocalDateTime expectedFinishTime;
+
+    /** 超时提醒是否已推送：0否 1是 */
+    private Integer slaNotified;
 
     /** 处理意见 */
     private String handleRemark;

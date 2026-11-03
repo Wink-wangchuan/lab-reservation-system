@@ -1,5 +1,28 @@
 <template>
   <div class="layout-root">
+    <!-- 维护模式 / 公告横幅：钉在页面最顶部，不随内容滚动 -->
+    <div v-if="portalState?.maintenance" class="portal-bar portal-bar--maintenance">
+      <el-icon><WarningFilled /></el-icon>
+      <span>{{ portalState.maintenanceNotice || '系统维护中，请稍后再试。' }}</span>
+    </div>
+    <div
+      v-else-if="portalState?.bannerEnabled && activeAnnouncements.length"
+      class="portal-bar"
+      :class="`portal-bar--${activeAnnouncements[0].level?.toLowerCase() || 'info'}`"
+    >
+      <el-icon><BellFilled /></el-icon>
+      <span class="portal-bar__title">{{ activeAnnouncements[0].title }}</span>
+      <span class="portal-bar__text">{{ activeAnnouncements[0].content }}</span>
+      <el-tooltip v-if="activeAnnouncements.length > 1" placement="bottom">
+        <template #content>
+          <div v-for="a in activeAnnouncements.slice(1)" :key="a.id" class="portal-tip">
+            {{ a.title }}：{{ a.content }}
+          </div>
+        </template>
+        <span class="portal-bar__more">还有 {{ activeAnnouncements.length - 1 }} 条</span>
+      </el-tooltip>
+    </div>
+
     <!-- 顶栏 -->
     <header class="topbar glass-card">
       <div class="brand">
@@ -114,7 +137,7 @@ import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { useTheme } from '@/utils/theme'
-import { noticeMine, noticeUnreadCount, weatherNow } from '@/api'
+import { noticeMine, noticeUnreadCount, weatherNow, portalStatus } from '@/api'
 import SideMenu from './SideMenu.vue'
 import NoticeToast from './NoticeToast.vue'
 
@@ -126,6 +149,23 @@ const { isDark, toggleTheme } = useTheme()
 const drawerVisible = ref(false)
 const unread = ref(0)
 let timer = null
+
+// —— 维护模式 / 公告横幅 ——
+// 每 5 分钟轮询一次，公告到点生效/下线与维护开关无需刷新页面即可看到
+const portalState = ref(null)
+const activeAnnouncements = computed(() => {
+  const p = portalState.value
+  return p?.bannerEnabled && Array.isArray(p.announcements) ? p.announcements : []
+})
+let portalTimer = null
+
+async function loadPortal() {
+  try {
+    portalState.value = await portalStatus()
+  } catch {
+    // 维护模式下普通用户的业务接口会被拦截，但本接口始终放行；失败保持静默
+  }
+}
 
 // —— 登录态超时 ——
 // 登录态为会话级（关闭浏览器退出）；这里再兜一层：1 小时无操作自动退出，
@@ -259,6 +299,9 @@ const menuDefs = [
   { path: '/system/role', title: '角色管理', icon: 'Avatar', perms: ['system:role:list'] },
   { path: '/system/permission', title: '权限管理', icon: 'Lock', perms: ['system:role:list'] },
   { path: '/system/operlog', title: '操作日志', icon: 'Document', perms: ['system:operlog:list'] },
+  { path: '/system/knowledge', title: 'AI 知识库', icon: 'Reading', perms: ['system:knowledge:manage'] },
+  { path: '/system/setting', title: '系统设置', icon: 'Setting', perms: ['system:config:manage'] },
+  { path: '/system/announcement', title: '系统公告', icon: 'BellFilled', perms: ['system:announcement:manage'] },
   { path: '/ai', title: 'AI 助手', icon: 'ChatDotRound', always: true },
   { path: '/profile', title: '个人中心', icon: 'UserFilled', always: true }
 ]
@@ -480,6 +523,9 @@ onMounted(() => {
   // 天气：进入应用先取一次，之后每 30 分钟刷新
   refreshWeather()
   weatherTimer = setInterval(refreshWeather, 30 * 60 * 1000)
+  // 维护模式与公告横幅
+  loadPortal()
+  portalTimer = setInterval(loadPortal, 5 * 60 * 1000)
   window.addEventListener('resize', trackWidth)
   bindIdleWatch()
 })
@@ -488,12 +534,65 @@ onBeforeUnmount(() => {
   if (timer) clearInterval(timer)
   if (clockTimer) clearInterval(clockTimer)
   if (weatherTimer) clearInterval(weatherTimer)
+  if (portalTimer) clearInterval(portalTimer)
   window.removeEventListener('resize', trackWidth)
   unbindIdleWatch()
 })
 </script>
 
 <style scoped lang="scss">
+/* 顶部通告条：维护模式优先于公告，公告只展示第一条，其余收进 tooltip */
+.portal-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.4;
+  background: rgba(64, 158, 255, 0.12);
+  border: 1px solid rgba(64, 158, 255, 0.3);
+  color: var(--ink-1);
+}
+
+.portal-bar__title {
+  flex: none;
+  font-weight: 600;
+}
+
+.portal-bar__text {
+  flex: 1;
+  min-width: 0;
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.portal-bar__more {
+  flex: none;
+  color: var(--ink-3);
+  cursor: default;
+}
+
+.portal-bar--warning {
+  background: rgba(230, 162, 60, 0.14);
+  border-color: rgba(230, 162, 60, 0.35);
+}
+
+.portal-bar--urgent,
+.portal-bar--maintenance {
+  background: rgba(245, 108, 108, 0.14);
+  border-color: rgba(245, 108, 108, 0.4);
+}
+
+.portal-tip {
+  max-width: 360px;
+  margin-bottom: 6px;
+  white-space: pre-wrap;
+}
+
 .layout-root {
   height: 100vh;
   display: flex;

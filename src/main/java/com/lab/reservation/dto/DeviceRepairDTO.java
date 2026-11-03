@@ -25,6 +25,9 @@ public class DeviceRepairDTO {
     @NotBlank(message = "故障描述不能为空")
     private String faultDesc;
 
+    @Schema(description = "紧急程度：LOW/NORMAL/HIGH/URGENT，默认 NORMAL")
+    private String priority;
+
     @Schema(description = "处理状态：PENDING/REPAIRING/COMPLETED/CANCELLED")
     private String status;
 

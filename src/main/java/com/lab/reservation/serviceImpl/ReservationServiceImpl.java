@@ -106,6 +106,9 @@ public class ReservationServiceImpl implements ReservationService {
     /** 容量释放事件：取消/驳回/改期后立即触发候补递补（事件监听器异步处理） */
     private final org.springframework.context.ApplicationEventPublisher eventPublisher;
 
+    /** 系统设置：定时任务开关可在管理页实时启停 */
+    private final com.lab.reservation.service.SysConfigService sysConfigService;
+
     /** 批量审批按单开启独立事务：某一张失败不牵连已成功的单据 */
     private final org.springframework.transaction.PlatformTransactionManager transactionManager;
 
@@ -443,7 +446,7 @@ public class ReservationServiceImpl implements ReservationService {
     @Scheduled(cron = "0 */5 * * * ?")
     @Transactional(rollbackFor = Exception.class)
     public void autoCompleteExpired() {
-        if (!autoCompleteEnabled) {
+        if (!autoCompleteEnabled || !sysConfigService.getBoolean("schedule.auto-complete", true)) {
             return;
         }
         LocalDate today = LocalDate.now();
@@ -477,7 +480,7 @@ public class ReservationServiceImpl implements ReservationService {
      */
     @Scheduled(cron = "0 */5 * * * ?")
     public void remindUpcoming() {
-        if (!remindEnabled) {
+        if (!remindEnabled || !sysConfigService.getBoolean("schedule.remind", true)) {
             return;
         }
         LocalDateTime now = LocalDateTime.now();

@@ -34,10 +34,20 @@ public interface DeviceRepairService {
     RepairVO detail(Long repairId);
 
     /** 分页查询全部报修单 */
-    IPage<RepairVO> page(IPage<RepairVO> page, Long labId, String status, String keyword);
+    IPage<RepairVO> page(IPage<RepairVO> page, Long labId, String status, String keyword,
+                        String priority, Boolean overdue);
 
     /** 分页查询我提交的报修单 */
     IPage<RepairVO> pageMine(IPage<RepairVO> page, String status);
+
+    /** 调整 SLA：优先级 / 指派处理人 / 预计完成时间 */
+    RepairVO updateSla(Long repairId, com.lab.reservation.dto.RepairSlaDTO dto);
+
+    /** 可指派的处理人清单 */
+    List<com.lab.reservation.vo.RepairHandlerVO> handlers();
+
+    /** 主动检查超时工单并推送提醒（定时任务调用） */
+    int remindOverdue();
 
     /**
      * 报修可选设备清单（精简字段）

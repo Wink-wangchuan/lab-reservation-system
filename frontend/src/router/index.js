@@ -181,6 +181,24 @@ const routes = [
         name: 'OperLog',
         component: () => import('@/views/system/operlog.vue'),
         meta: { title: '操作日志', icon: 'Document', perms: ['system:operlog:list'] }
+      },
+      {
+        path: 'knowledge',
+        name: 'SysKnowledge',
+        component: () => import('@/views/system/knowledge.vue'),
+        meta: { title: 'AI 知识库', icon: 'Reading', perms: ['system:knowledge:manage'] }
+      },
+      {
+        path: 'setting',
+        name: 'SysSetting',
+        component: () => import('@/views/system/setting.vue'),
+        meta: { title: '系统设置', icon: 'Setting', perms: ['system:config:manage'] }
+      },
+      {
+        path: 'announcement',
+        name: 'SysAnnouncement',
+        component: () => import('@/views/system/announcement.vue'),
+        meta: { title: '系统公告', icon: 'BellFilled', perms: ['system:announcement:manage'] }
       }
     ]
   },

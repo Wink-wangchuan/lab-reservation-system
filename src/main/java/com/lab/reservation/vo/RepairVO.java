@@ -38,6 +38,24 @@ public class RepairVO {
     @Schema(description = "故障描述")
     private String faultDesc;
 
+    @Schema(description = "优先级 LOW/NORMAL/HIGH/URGENT")
+    private String priority;
+
+    @Schema(description = "优先级中文")
+    private String priorityDesc;
+
+    @Schema(description = "指派处理人ID")
+    private Long assigneeId;
+
+    @Schema(description = "指派处理人姓名")
+    private String assigneeName;
+
+    @Schema(description = "预计完成时间（SLA 截止）")
+    private LocalDateTime expectedFinishTime;
+
+    @Schema(description = "是否已超时（仅进行中的工单）")
+    private Boolean overdue;
+
     @Schema(description = "状态编码 PENDING/REPAIRING/COMPLETED/CANCELLED")
     private String status;
 

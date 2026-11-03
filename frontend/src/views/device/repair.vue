@@ -23,6 +23,10 @@
           <el-select v-model="query.status" placeholder="状态" clearable style="width: 130px" @change="load">
             <el-option v-for="(v, k) in statusMap" :key="k" :label="v" :value="k" />
           </el-select>
+          <el-select v-if="canListAll" v-model="query.priority" placeholder="优先级" clearable style="width: 120px" @change="load">
+            <el-option v-for="(v, k) in priorityMap" :key="k" :label="v" :value="k" />
+          </el-select>
+          <el-checkbox v-if="canListAll" v-model="query.overdue" label="仅看超时" @change="load" />
           <el-input v-model="query.keyword" placeholder="搜索单号/设备" clearable style="width: 180px" @keyup.enter="load" @clear="load" />
           <el-button type="primary" @click="load"><el-icon><Search /></el-icon> 查询</el-button>
           <el-button v-if="canSubmit" type="warning" @click="openSubmit"><el-icon><Warning /></el-icon> 提交报修</el-button>
@@ -39,14 +43,27 @@
             <el-tag :type="statusType(row.status)">{{ row.statusDesc }}</el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="优先级" width="90" align="center">
+          <template #default="{ row }">
+            <el-tag :type="priorityType(row.priority)" size="small">{{ row.priorityDesc || '普通' }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="SLA 截止" width="190">
+          <template #default="{ row }">
+            <div class="sla-cell">
+              <span>{{ row.expectedFinishTime || '-' }}</span>
+              <el-tag v-if="row.overdue" type="danger" size="small" effect="dark">已超时</el-tag>
+            </div>
+          </template>
+        </el-table-column>
         <el-table-column label="维修人" prop="handlerName" width="90">
-          <template #default="{ row }">{{ row.handlerName || '-' }}</template>
+          <template #default="{ row }">{{ row.assigneeName || row.handlerName || '-' }}</template>
         </el-table-column>
         <el-table-column label="维修备注" prop="handleRemark" min-width="170">
           <template #default="{ row }">{{ row.handleRemark || '-' }}</template>
         </el-table-column>
         <el-table-column label="提交时间" prop="createTime" width="180" />
-        <el-table-column label="操作" width="170" fixed="right" align="center">
+        <el-table-column label="操作" width="210" fixed="right" align="center">
           <template #default="{ row }">
             <!-- 维修动作属处理人权限；取消报修后端校验「仅报修人本人」，故同时判断归属 -->
             <template v-if="row.status === 'PENDING'">
@@ -56,6 +73,7 @@
             <template v-else-if="row.status === 'REPAIRING' && canHandle">
               <el-button link type="success" @click="doComplete(row)">完成维修</el-button>
             </template>
+            <el-button v-if="canHandle && isActive(row)" link type="primary" @click="openSla(row)">SLA</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -75,7 +93,20 @@
             </div>
             <div class="repair-card__item">
               <span class="repair-card__label">维修人</span>
-              <span class="repair-card__value">{{ row.handlerName || '-' }}</span>
+              <span class="repair-card__value">{{ row.assigneeName || row.handlerName || '-' }}</span>
+            </div>
+            <div class="repair-card__item">
+              <span class="repair-card__label">优先级</span>
+              <span class="repair-card__value">
+                <el-tag :type="priorityType(row.priority)" size="small">{{ row.priorityDesc || '普通' }}</el-tag>
+              </span>
+            </div>
+            <div class="repair-card__item">
+              <span class="repair-card__label">SLA 截止</span>
+              <span class="repair-card__value">
+                {{ row.expectedFinishTime || '-' }}
+                <el-tag v-if="row.overdue" type="danger" size="small">已超时</el-tag>
+              </span>
             </div>
             <div class="repair-card__item repair-card__item--full">
               <span class="repair-card__label">提交时间</span>
@@ -97,6 +128,9 @@
           </div>
           <div v-else-if="row.status === 'REPAIRING' && canHandle" class="repair-card__actions">
             <el-button size="small" type="success" plain @click="doComplete(row)">完成维修</el-button>
+          </div>
+          <div v-if="canHandle && isActive(row)" class="repair-card__actions">
+            <el-button size="small" type="primary" plain @click="openSla(row)">调整 SLA / 指派</el-button>
           </div>
         </div>
         <el-empty v-if="!loading && !records.length" description="暂无报修工单" :image-size="80" />
@@ -123,6 +157,11 @@
             <el-option v-for="d in devices" :key="d.id" :label="`${d.deviceName}（${d.deviceCode}）`" :value="d.id" :disabled="d.faultStatus === 1" />
           </el-select>
         </el-form-item>
+        <el-form-item label="紧急程度" prop="priority">
+          <el-radio-group v-model="submitForm.priority">
+            <el-radio v-for="(v, k) in priorityMap" :key="k" :value="k">{{ v }}</el-radio>
+          </el-radio-group>
+        </el-form-item>
         <el-form-item label="故障描述" prop="faultDesc">
           <el-input v-model="submitForm.faultDesc" type="textarea" :rows="4" maxlength="500" show-word-limit placeholder="请详细描述故障现象，提交后设备将锁定，直至维修完成解锁" />
         </el-form-item>
@@ -133,6 +172,34 @@
         <el-button type="warning" :loading="submitting" @click="doSubmit">提交报修</el-button>
       </template>
     </el-dialog>
+
+    <!-- SLA / 指派 -->
+    <el-dialog v-model="slaVisible" title="调整 SLA 与指派处理人" width="480px">
+      <el-form label-width="110px">
+        <el-form-item label="工单">
+          <span>{{ slaRow?.repairNo }} · {{ slaRow?.deviceName }}</span>
+        </el-form-item>
+        <el-form-item label="优先级">
+          <el-radio-group v-model="slaForm.priority">
+            <el-radio v-for="(v, k) in priorityMap" :key="k" :value="k">{{ v }}</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="指派处理人">
+          <el-select v-model="slaForm.assigneeId" placeholder="不指派" clearable style="width: 100%">
+            <el-option v-for="h in handlers" :key="h.id" :label="h.realName" :value="h.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="预计完成">
+          <el-date-picker v-model="slaForm.expectedFinishTime" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss"
+            placeholder="留空则按优先级自动计算" style="width: 100%" />
+        </el-form-item>
+        <el-alert type="info" :closable="false" :title="slaTip" />
+      </el-form>
+      <template #footer>
+        <el-button @click="slaVisible = false">取消</el-button>
+        <el-button type="primary" :loading="slaSaving" @click="saveSla">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -140,7 +207,7 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import {
   repairPage, repairMine, repairSubmit, repairStart, repairComplete,
-  repairCancel, repairDeviceOptions
+  repairCancel, repairDeviceOptions, repairSla, repairHandlers
 } from '@/api'
 import { useUserStore } from '@/store/user'
 
@@ -170,11 +237,16 @@ function isMine(row) {
 const loading = ref(false)
 const records = ref([])
 const total = ref(0)
-const query = ref({ current: 1, size: 10, status: '', keyword: '' })
+const query = ref({ current: 1, size: 10, status: '', keyword: '', priority: '', overdue: false })
 
 const statusMap = { PENDING: '待处理', REPAIRING: '维修中', COMPLETED: '已完成', CANCELLED: '已取消' }
 const statusTypeMap = { PENDING: 'warning', REPAIRING: 'primary', COMPLETED: 'success', CANCELLED: 'info' }
 function statusType(s) { return statusTypeMap[s] || 'info' }
+
+const priorityMap = { LOW: '低', NORMAL: '普通', HIGH: '高', URGENT: '紧急' }
+const priorityTypeMap = { LOW: 'info', NORMAL: 'primary', HIGH: 'warning', URGENT: 'danger' }
+function priorityType(p) { return priorityTypeMap[p] || 'primary' }
+function isActive(row) { return row.status === 'PENDING' || row.status === 'REPAIRING' }
 
 // 闭环步骤条只反映"当前活跃工单"，历史完成单不再参与点亮：
 //  - 有待处理单 → 第 1 步已完成（绿），第 2 步进行中
@@ -208,7 +280,7 @@ const devices = ref([])
 const submitVisible = ref(false)
 const submitFormRef = ref()
 const submitting = ref(false)
-const submitForm = ref({ deviceId: null, faultDesc: '' })
+const submitForm = ref({ deviceId: null, faultDesc: '', priority: 'NORMAL' })
 const submitRules = {
   deviceId: [{ required: true, message: '请选择设备', trigger: 'change' }],
   faultDesc: [{ required: true, message: '请输入故障描述', trigger: 'blur' }]
@@ -248,12 +320,57 @@ function doSubmit() {
       await repairSubmit({ ...submitForm.value })
       ElMessage.success('报修已提交，设备已锁定')
       submitVisible.value = false
+      submitForm.value = { deviceId: null, faultDesc: '', priority: 'NORMAL' }
       load()
     } catch {
     } finally {
       submitting.value = false
     }
   })
+}
+
+// ===== SLA / 指派 =====
+const slaVisible = ref(false)
+const slaRow = ref(null)
+const slaSaving = ref(false)
+const handlers = ref([])
+const slaForm = ref({ priority: 'NORMAL', assigneeId: undefined, expectedFinishTime: null })
+const slaTip = computed(() => '默认时限：紧急 4 小时、高 24 小时、普通 3 天、低 5 天；留空预计完成时间时按优先级自动计算')
+
+async function openSla(row) {
+  slaRow.value = row
+  slaForm.value = {
+    priority: row.priority || 'NORMAL',
+    assigneeId: row.assigneeId || undefined,
+    expectedFinishTime: row.expectedFinishTime || null
+  }
+  slaVisible.value = true
+  if (canHandle.value && !handlers.value.length) {
+    try {
+      handlers.value = (await repairHandlers()) || []
+    } catch {
+      handlers.value = []
+    }
+  }
+}
+
+async function saveSla() {
+  if (!slaRow.value) return
+  slaSaving.value = true
+  try {
+    const assignee = slaForm.value.assigneeId
+    await repairSla(slaRow.value.id, {
+      priority: slaForm.value.priority,
+      // 清空选择表示取消指派，用 0 作为约定值
+      assigneeId: assignee === '' || assignee == null ? 0 : assignee,
+      expectedFinishTime: slaForm.value.expectedFinishTime || null
+    })
+    ElMessage.success('SLA 已更新')
+    slaVisible.value = false
+    load()
+  } finally {
+    slaSaving.value = false
+  }
 }
 
 function doStart(row) {
@@ -302,6 +419,14 @@ onMounted(() => {
 </script>
 
 <style scoped lang="scss">
+/* SLA 截止列：时间与超时标签并排，超时优先可见 */
+.sla-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
 /* ===== 窄屏卡片列表 ===== */
 .repair-cards {
   display: flex;

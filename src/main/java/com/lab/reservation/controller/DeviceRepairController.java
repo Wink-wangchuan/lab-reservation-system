@@ -89,10 +89,28 @@ public class DeviceRepairController {
             @RequestParam(defaultValue = "10") long size,
             @RequestParam(required = false) Long labId,
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) String priority,
+            @RequestParam(required = false) Boolean overdue,
             @RequestParam(required = false) String keyword) {
         IPage<RepairVO> page = repairService.page(
-                new Page<>(current, size), labId, status, keyword);
+                new Page<>(current, size), labId, status, keyword, priority, overdue);
         return Result.success(PageVO.of(page, r -> r));
+    }
+
+    @Operation(summary = "调整报修 SLA（优先级/指派/预计完成）")
+    @PutMapping("/{id}/sla")
+    @OperationLog(module = "设备报修", businessType = "update", description = "调整报修 SLA")
+    @PreAuthorize("hasAuthority('device:repair:handle')")
+    public Result<RepairVO> updateSla(@PathVariable Long id,
+                                      @RequestBody com.lab.reservation.dto.RepairSlaDTO dto) {
+        return Result.success("已更新", repairService.updateSla(id, dto));
+    }
+
+    @Operation(summary = "可指派的报修处理人清单")
+    @GetMapping("/handlers")
+    @PreAuthorize("hasAuthority('device:repair:handle')")
+    public Result<List<com.lab.reservation.vo.RepairHandlerVO>> handlers() {
+        return Result.success(repairService.handlers());
     }
 
     @Operation(summary = "我提交的报修分页")
