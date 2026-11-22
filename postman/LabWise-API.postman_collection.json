@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "LabWise 智慧实验室预约系统 API 测试",
-    "description": "覆盖 LabWise 预约系统主要接口：认证、个人中心、驾驶舱统计、实验室与时段、设备、预约、签到、报修、消息、系统管理，并包含权限与 CORS 安全回归。\n\n运行前置：后端可访问（默认 http://100.96.0.100:8091/api，仅 tailnet 内网可达 → 需 Postman Desktop Agent 或本机 newman 运行）。\n默认账号：admin/123456（可在环境变量 adminUser / adminPass 修改）。\n「12 业务写操作」会真实写入预约、报修、临时账号数据（随后自动取消/删除），默认不自动执行。",
+    "description": "覆盖 LabWise 预约系统主要接口：认证、个人中心、驾驶舱统计、实验室与时段、设备、预约、签到、报修、消息、系统管理，并包含权限与 CORS 安全回归。\n\n运行前置：后端可访问（默认 http://100.96.0.100:21030/api，仅 tailnet 内网可达 → 需 Postman Desktop Agent 或本机 newman 运行）。\n默认账号：admin/123456（可在环境变量 adminUser / adminPass 修改）。\n「12 业务写操作」会真实写入预约、报修、临时账号数据（随后自动取消/删除），默认不自动执行。",
     "schema": "https://schema.postman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -21,7 +21,7 @@
         "type": "text/javascript",
         "exec": [
           "// 兜底默认值：未配置环境变量也能直接运行",
-          "pm.collectionVariables.set('baseUrl', pm.collectionVariables.get('baseUrl') || 'http://100.96.0.100:8091/api');",
+          "pm.collectionVariables.set('baseUrl', pm.collectionVariables.get('baseUrl') || 'http://100.96.0.100:21030/api');",
           "pm.collectionVariables.set('adminUser', pm.collectionVariables.get('adminUser') || 'admin');",
           "pm.collectionVariables.set('adminPass', pm.collectionVariables.get('adminPass') || '123456');",
           "// 明天日期（可预约时段查询用）",
@@ -1343,7 +1343,7 @@
               },
               {
                 "key": "Origin",
-                "value": "http://100.96.0.100:8092"
+                "value": "http://100.96.0.100:21031"
               },
               {
                 "key": "Access-Control-Request-Method",
@@ -1361,7 +1361,7 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('回显白名单来源', () => pm.expect(pm.response.headers.get('Access-Control-Allow-Origin')).to.eql('http://100.96.0.100:8092'));"
+                  "pm.test('回显白名单来源', () => pm.expect(pm.response.headers.get('Access-Control-Allow-Origin')).to.eql('http://100.96.0.100:21031'));"
                 ]
               }
             }

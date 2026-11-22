@@ -5,7 +5,7 @@
 路由使用 history 模式，故对不存在的路径统一回退到 index.html。
 
 用法：
-    python3 serve_dist.py --bind 100.96.0.100 --port 8092 --directory ~/lab-reservation/dist
+    python3 serve_dist.py --bind 100.96.0.100 --port 21031 --directory ~/lab-reservation/dist
 """
 import argparse
 import functools
@@ -55,7 +55,7 @@ class SpaHandler(SimpleHTTPRequestHandler):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--bind', default='100.96.0.100')
-    parser.add_argument('--port', type=int, default=8092)
+    parser.add_argument('--port', type=int, default=21031)
     parser.add_argument('--directory', required=True)
     args = parser.parse_args()
 

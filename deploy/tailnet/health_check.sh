@@ -11,7 +11,7 @@
 set -uo pipefail
 
 HOME_DIR="${HOME:-/home/$(id -un)}"
-URL="http://100.96.0.100:8091/api/health"
+URL="http://100.96.0.100:21030/api/health"
 LOG="$HOME_DIR/lab-reservation/logs/health.log"
 STATE="$HOME_DIR/lab-reservation/data/health.fail"
 

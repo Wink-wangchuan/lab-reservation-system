@@ -64,8 +64,8 @@ public class MainActivity extends BridgeActivity {
     private static final String KEY_EULA = "eula_accepted";
     private static final String KEY_IGNORED_UPDATE = "ignored_update_version";
 
-    /** 后端 API 地址（更新接口；与前端 8092 分开） */
-    private static final String API_BASE = "http://100.96.0.100:8091";
+    /** 后端 API 地址（更新接口；与前端 21031 分开） */
+    private static final String API_BASE = "http://100.96.0.100:21030";
     private static final String GITHUB_LATEST =
             "https://api.github.com/repos/Wink-wangchuan/lab-reservation-system/releases/latest";
     private static final String TAG = "LabWiseUpdate";

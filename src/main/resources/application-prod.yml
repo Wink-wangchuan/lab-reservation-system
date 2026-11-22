@@ -6,7 +6,7 @@
 server:
   # 监听地址与端口由 systemd 单元注入，默认仅暴露到 tailnet
   address: ${SERVER_ADDRESS:100.96.0.100}
-  port: ${PORT:8091}
+  port: ${PORT:21030}
 
 spring:
   datasource:

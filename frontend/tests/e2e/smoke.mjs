@@ -6,14 +6,14 @@
  *
  * 用法：
  *   npm run e2e
- *   E2E_BASE_URL=http://100.96.0.100:8092 E2E_USER=admin E2E_PASSWORD=123456 npm run e2e
+ *   E2E_BASE_URL=http://100.96.0.100:21031 E2E_USER=admin E2E_PASSWORD=123456 npm run e2e
  *
  * @author LabWise
  * @since 3.7.0
  */
 import { chromium } from 'playwright-core'
 
-const BASE = process.env.E2E_BASE_URL || 'http://100.96.0.100:8092'
+const BASE = process.env.E2E_BASE_URL || 'http://100.96.0.100:21031'
 const USER = process.env.E2E_USER || 'admin'
 const PASSWORD = process.env.E2E_PASSWORD || '123456'
 

@@ -7,8 +7,8 @@
 
 | 服务 | 地址 | 说明 |
 | --- | --- | --- |
-| 前端（生产静态站） | http://100.96.0.100:8092 | Vue3 构建产物 + SPA 回退 |
-| 后端接口 | http://100.96.0.100:8091/api | Spring Boot，同时是前端跨域目标 |
+| 前端（生产静态站） | http://100.96.0.100:21031 | Vue3 构建产物 + SPA 回退 |
+| 后端接口 | http://100.96.0.100:21030/api | Spring Boot，同时是前端跨域目标 |
 | Redis | 127.0.0.1:6379 | 仅回环，不对外 |
 | MySQL | 100.96.0.100:3306 | 队友提供，库 `lab_reservation` |
 
@@ -330,8 +330,8 @@ ssh tailnet-server 'rm -rf ~/lab-reservation/dist && tar -xzf /tmp/lab-dist.tgz 
    > 约定：**每次改动发版都必须同时上传安装包与源码归档**，不得只传其中一类。
 7. 验证：
    ```bash
-   curl -sS 'http://100.96.0.100:8091/api/app/update?platform=windows'
-   curl -sSI 'http://100.96.0.100:8091/api/app/download/windows' | sed -n '1,12p'
+   curl -sS 'http://100.96.0.100:21030/api/app/update?platform=windows'
+   curl -sSI 'http://100.96.0.100:21030/api/app/download/windows' | sed -n '1,12p'
    ```
 
 **客户端行为**：

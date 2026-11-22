@@ -7,12 +7,12 @@
  *
  * 用法：
  *   npm run e2e:write
- *   E2E_API=http://100.96.0.100:8091 E2E_USER=admin E2E_PASSWORD=123456 npm run e2e:write
+ *   E2E_API=http://100.96.0.100:21030 E2E_USER=admin E2E_PASSWORD=123456 npm run e2e:write
  *
  * 注意：脚本会在目标环境真实创建一条预约并取消，请勿在意的数据请先确认；
  * 生产环境执行后务必运行清理 SQL（见 scripts/cleanup-e2e.sql）。
  */
-const API = process.env.E2E_API || 'http://100.96.0.100:8091'
+const API = process.env.E2E_API || 'http://100.96.0.100:21030'
 const USER = process.env.E2E_USER || 'admin'
 const PASSWORD = process.env.E2E_PASSWORD || '123456'
 const MARK = '【E2E】'

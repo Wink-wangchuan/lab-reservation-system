@@ -7,9 +7,9 @@ const path = require('path')
 const fs = require('fs')
 const { initUpdater, checkForUpdate } = require('./updater')
 
-const SERVER_URL = (process.env.LABWISE_SERVER || 'http://100.96.0.100:8092').replace(/\/+$/, '')
-// 更新接口在 8091 后端；与 SERVER_URL 分开是为了让前端页面与 API 地址可独立覆盖
-const API_URL = (process.env.LABWISE_API || 'http://100.96.0.100:8091').replace(/\/+$/, '')
+const SERVER_URL = (process.env.LABWISE_SERVER || 'http://100.96.0.100:21031').replace(/\/+$/, '')
+// 更新接口在 21030 后端；与 SERVER_URL 分开是为了让前端页面与 API 地址可独立覆盖
+const API_URL = (process.env.LABWISE_API || 'http://100.96.0.100:21030').replace(/\/+$/, '')
 const STATE_FILE = () => path.join(app.getPath('userData'), 'client-state.json')
 /** 打包/部署前的自检模式：强制走协议页并自动同意，验证能进入服务器页面 */
 const SELFTEST = process.env.LABWISE_SELFTEST === '1'

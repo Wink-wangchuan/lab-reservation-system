@@ -3,7 +3,7 @@ import router from '@/router'
 import { getToken, removeToken } from './auth'
 
 // 统一 HTTP 客户端
-// baseURL 优先取构建期注入的 VITE_API_BASE（生产：前端 8092、后端 8091 分离部署时直连后端）；
+// baseURL 优先取构建期注入的 VITE_API_BASE（生产：前端 21031、后端 21030 分离部署时直连后端）；
 // 未配置时回退 /api，走开发环境 Vite 代理
 const service = axios.create({
   baseURL: import.meta.env.VITE_API_BASE || '/api',

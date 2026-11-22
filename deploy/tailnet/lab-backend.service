@@ -1,5 +1,5 @@
 [Unit]
-Description=lab-reservation-system backend (Spring Boot, tailnet 100.96.0.100:8091)
+Description=lab-reservation-system backend (Spring Boot, tailnet 100.96.0.100:21030)
 After=network.target
 
 [Service]
