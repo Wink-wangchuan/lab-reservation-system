@@ -28,6 +28,9 @@
       "update.html",
       "eula.html",
       "error.html",
+      "splash.html",
+      "splash-preload.js",
+      "assets/**",
       "icon.png"
     ],
     "win": {

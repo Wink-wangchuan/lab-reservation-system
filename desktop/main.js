@@ -15,6 +15,15 @@ const STATE_FILE = () => path.join(app.getPath('userData'), 'client-state.json')
 const SELFTEST = process.env.LABWISE_SELFTEST === '1'
 
 let mainWindow = null
+let splashWindow = null
+/** 启动画面是否已结束；主界面要等它结束才显示，避免两窗重叠 */
+let splashFinished = false
+/** 主窗口内容是否已可显示 */
+let mainReadyToShow = false
+/** 启动画面最长展示时间，视频异常时兜底 */
+const SPLASH_TIMEOUT_MS = 10000
+/** 自检模式与显式关闭时跳过启动画面 */
+const SPLASH_ENABLED = !SELFTEST && process.env.LABWISE_NO_SPLASH !== '1'
 
 function readState() {
   try {
@@ -87,7 +96,50 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
+function mainShowIfReady() {
+  if (!mainReadyToShow || !splashFinished) return
+  if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) mainWindow.show()
+}
+
+/** 关闭启动画面并放出主窗口（可重复调用） */
+function finishSplash() {
+  if (splashFinished) return
+  splashFinished = true
+  if (splashWindow && !splashWindow.isDestroyed()) splashWindow.destroy()
+  splashWindow = null
+  mainShowIfReady()
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.focus()
+}
+
+/** 启动画面：无边框小窗播放 4:3 品牌动画，播放结束/失败/点击后进入主界面 */
+function createSplashWindow() {
+  splashWindow = new BrowserWindow({
+    width: 720,
+    height: 540,
+    useContentSize: true,
+    frame: false,
+    resizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    show: false,
+    skipTaskbar: true,
+    backgroundColor: '#dfe4f6',
+    webPreferences: {
+      preload: path.join(__dirname, 'splash-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+  ipcMain.once('splash:done', finishSplash)
+  splashWindow.once('ready-to-show', () => splashWindow?.show())
+  // 用户直接关掉启动窗（Alt+F4）时也要把主界面放出来
+  splashWindow.once('closed', finishSplash)
+  splashWindow.loadFile('splash.html')
+  setTimeout(finishSplash, SPLASH_TIMEOUT_MS)
+}
+
 function createWindow() {
+  mainReadyToShow = false
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 820,
@@ -103,7 +155,10 @@ function createWindow() {
     }
   })
 
-  mainWindow.once('ready-to-show', () => mainWindow.show())
+  mainWindow.once('ready-to-show', () => {
+    mainReadyToShow = true
+    mainShowIfReady()
+  })
 
   // 外部链接交给系统浏览器，应用内只允许服务器地址与本地协议页
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -190,6 +245,11 @@ app.whenReady().then(() => {
     setState: writeState
   })
   buildMenu()
+  if (SPLASH_ENABLED) {
+    createSplashWindow()
+  } else {
+    splashFinished = true
+  }
   createWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

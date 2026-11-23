@@ -11,6 +11,18 @@
         android:hardwareAccelerated="true"
         android:theme="@style/AppTheme">
 
+        <!-- 启动画面：全屏播放品牌动画后进入 MainActivity -->
+        <activity
+            android:name=".SplashActivity"
+            android:theme="@style/AppTheme.NoActionBar"
+            android:configChanges="orientation|screenSize|screenLayout|uiMode"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation"
             android:name=".MainActivity"
@@ -19,11 +31,6 @@
             android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize"
             android:exported="true">
-
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
 
         </activity>
 

@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>LabWise 启动画面</title>
+  <style>
+    html, body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #dfe4f6;
+      -webkit-app-region: drag; /* 无边框窗口可通过拖动画面移动 */
+      user-select: none;
+      cursor: default;
+    }
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <video id="splash" src="assets/splash.mp4" autoplay muted playsinline preload="auto"></video>
+  <script>
+    // 播放结束、解码失败或用户点击时通知主进程关闭启动画面；另设兜底超时，避免卡在启动页
+    const video = document.getElementById('splash')
+    let sent = false
+    function done() {
+      if (sent) return
+      sent = true
+      window.labwiseSplash.done()
+    }
+    video.addEventListener('ended', done)
+    video.addEventListener('error', done)
+    document.addEventListener('click', done)
+    // 静音自动播放若被拦截，也不会卡住：1 秒后检查是否已开始播放
+    setTimeout(() => { if (video.paused) done() }, 1500)
+  </script>
+</body>
+</html>
