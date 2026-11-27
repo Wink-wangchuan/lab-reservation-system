@@ -42,12 +42,16 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.security.KeyFactory;
-import java.security.PublicKey;
 import java.security.Signature;
-import java.security.spec.X509EncodedKeySpec;
+import java.util.Arrays;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
+
+import net.i2p.crypto.eddsa.EdDSAEngine;
+import net.i2p.crypto.eddsa.EdDSAPublicKey;
+import net.i2p.crypto.eddsa.spec.EdDSANamedCurveSpec;
+import net.i2p.crypto.eddsa.spec.EdDSANamedCurveTable;
+import net.i2p.crypto.eddsa.spec.EdDSAPublicKeySpec;
 
 /**
  * 移动端入口：
@@ -395,14 +399,23 @@ public class MainActivity extends BridgeActivity {
         String payload = info.version + "|" + info.sha256 + "|" + info.fileName + "|" + info.size;
         try {
             byte[] der = Base64.decode(UPDATE_PUBLIC_KEY_DER, Base64.DEFAULT);
-            PublicKey key = KeyFactory.getInstance("Ed25519")
-                    .generatePublic(new X509EncodedKeySpec(der));
-            Signature verifier = Signature.getInstance("Ed25519");
-            verifier.initVerify(key);
+            // X.509 SubjectPublicKeyInfo 的结构固定为 12 字节头 + 32 字节原始公钥
+            byte[] rawPublicKey = Arrays.copyOfRange(der, der.length - 32, der.length);
+            byte[] signature = Base64.decode(info.signature, Base64.DEFAULT);
+
+            EdDSANamedCurveSpec spec = EdDSANamedCurveTable.getByName(EdDSANamedCurveTable.ED_25519);
+            EdDSAPublicKeySpec keySpec = new EdDSAPublicKeySpec(rawPublicKey, spec);
+            Signature verifier = new EdDSAEngine(MessageDigest.getInstance("SHA-512"));
+            verifier.initVerify(new EdDSAPublicKey(keySpec));
             verifier.update(payload.getBytes(StandardCharsets.UTF_8));
-            return verifier.verify(Base64.decode(info.signature, Base64.DEFAULT));
+            boolean ok = verifier.verify(signature);
+            if (!ok) {
+                // 只记录载荷摘要，避免把完整清单写进日志
+                Log.w(TAG, "清单验签未通过，载荷：" + payload);
+            }
+            return ok;
         } catch (Exception e) {
-            Log.w(TAG, "清单验签失败：" + e.getMessage());
+            Log.w(TAG, "清单验签异常：" + e.getClass().getSimpleName() + " " + e.getMessage());
             return false;
         }
     }
